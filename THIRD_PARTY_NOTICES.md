@@ -6,7 +6,7 @@ retain their own licenses.
 
 ## Google Material Design icons
 
-The Settings gear, Menu, and Close vector icons in
+The Settings gear, Menu, Close, Back, and Backspace vector icons in
 `app/src/main/res/drawable` are adapted from Google Material Design icons.
 The SVG geometry was converted to Android vector paths with local formatting
 and coordinate changes.
@@ -18,7 +18,25 @@ The full license is included in `licenses/APACHE-2.0.txt`.
 Upstream: https://github.com/google/material-design-icons
 Settings geometry: https://github.com/google/material-design-icons/blob/3.0.1/action/svg/production/ic_settings_24px.svg
 
-The Sudoku launcher artwork and Undo/Erase paths are local artwork.
+The Liddle Puzzles tiled-L launcher artwork and Undo/Erase paths are local artwork.
+
+## Daily Word English dictionary
+
+`app/src/main/assets/daily-word/guesses-v1.txt` contains the 12,653 lowercase
+ASCII five-letter entries filtered from the English word list in Loren
+Brichter's **Words** project (the Letterpress dictionary).
+
+Source: https://github.com/lorenbrichter/Words
+Pinned revision: `f4976d6a6d34beb431dec8d4b443a138f4dc8bee`
+Source file: `Words/en.txt`
+Source SHA-256: `b78af5ad2f66bed4e64fd48334af7d5620a91c45e7a578c084b9b72f9abcd5dd`
+License: **CC0 1.0 Universal**, retained in `licenses/CC0-1.0-Words.txt`
+and bundled in the app's legal assets.
+
+The separate 619-word answer selection and its frozen ordering were authored
+for Liddle Puzzles, checked against this dictionary, and are distributed with
+the app under its MIT license. Neither vocabulary nor schedule uses the
+New York Times' word schedule, branding, artwork, or source code.
 
 ## Gradle Wrapper (source distribution only)
 

@@ -53,7 +53,7 @@ public final class MainActivity extends Activity {
     static final String[] COLOR_NAMES = {"Red", "Orange", "Yellow", "Green", "Blue", "Pink", "Purple", "Brown"};
     private static final String[] COLOR_SWATCHES = {"#C83B46", "#E68A22", "#E1BE19", "#368449",
             "#3675C3", "#CE5B96", "#965EB0", "#926949"};
-    private enum Screen { MENU, PLAY, SETTINGS, WIN }
+    private enum Screen { HUB, MENU, PLAY, SETTINGS, WIN }
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Button[] bank = new Button[9];
@@ -63,7 +63,7 @@ public final class MainActivity extends Activity {
     private ImageButton undoButton, eraseButton;
     private Button notesButton;
     private Palette palette;
-    private Screen screen = Screen.MENU, settingsReturn = Screen.MENU;
+    private Screen screen = Screen.HUB, settingsReturn = Screen.HUB;
     private boolean resumed, loading, saveFailed;
     private Future<?> generation;
     private long startedAt;
@@ -107,6 +107,10 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void attachBaseContext(Context base) {
+        super.attachBaseContext(appearanceContext(base));
+    }
+
+    static Context appearanceContext(Context base) {
         int appearance = base.getSharedPreferences("settings", MODE_PRIVATE).getInt("appearance", 0);
         if (appearance == 1 || appearance == 2) {
             Configuration override = new Configuration();
@@ -114,7 +118,7 @@ public final class MainActivity extends Activity {
                     | (appearance == 2 ? Configuration.UI_MODE_NIGHT_YES : Configuration.UI_MODE_NIGHT_NO);
             base = base.createConfigurationContext(override);
         }
-        super.attachBaseContext(base);
+        return base;
     }
 
     @Override public void onCreate(Bundle state) {
@@ -130,8 +134,8 @@ public final class MainActivity extends Activity {
         migrateAutoNotes();
         recordBestSolve();
         if (state != null) {
-            screen = Screen.valueOf(state.getString("screen", Screen.MENU.name()));
-            settingsReturn = Screen.valueOf(state.getString("settingsReturn", Screen.MENU.name()));
+            screen = Screen.valueOf(state.getString("screen", Screen.HUB.name()));
+            settingsReturn = Screen.valueOf(state.getString("settingsReturn", Screen.HUB.name()));
         }
         if (screen == Screen.PLAY && (game == null || game.won())) screen = Screen.MENU;
         if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
@@ -196,7 +200,38 @@ public final class MainActivity extends Activity {
         if (screen == Screen.PLAY) buildGame();
         else if (screen == Screen.SETTINGS) buildSettings();
         else if (screen == Screen.WIN) buildWin(animateWin);
+        else if (screen == Screen.HUB) buildHub();
         else buildMenu();
+    }
+
+    private void buildHub() {
+        LinearLayout content = scrollContent(root(false));
+        LinearLayout heading = row();
+        TextView title = text(getString(R.string.app_name), 34, palette.ink);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setMinHeight(dp(64));
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        ImageButton settings = navigationButton("Settings", R.drawable.ic_settings);
+        settings.setOnClickListener(v -> openSettings());
+        heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        content.addView(heading);
+        addCopy(content, "Sudoku and Daily Word", 18, palette.muted, 32);
+        Button sudoku = button("Sudoku", true);
+        sudoku.setTextSize(22);
+        sudoku.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        sudoku.setPadding(dp(20), 0, dp(20), 0);
+        sudoku.setOnClickListener(v -> navigate(Screen.MENU));
+        addControl(content, sudoku, 72, 8);
+        addCopy(content, game != null && !game.won() ? "Your " + game.difficulty.label.toLowerCase(Locale.ROOT)
+                + " puzzle is ready to resume." : "Fresh puzzles. Three ways to challenge yourself.", 16, palette.muted, 28);
+        Button word = button("Daily Word", false);
+        word.setTextSize(22);
+        word.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        word.setPadding(dp(20), 0, dp(20), 0);
+        word.setOnClickListener(v -> startActivity(new Intent(this, DailyWordActivity.class)));
+        addControl(content, word, 72, 8);
+        addCopy(content, "Five letters. Six guesses.\nOne shared word for each local date, fully offline.", 16, palette.muted, 0);
     }
 
     private LinearLayout scrollContent(LinearLayout root) {
@@ -213,6 +248,10 @@ public final class MainActivity extends Activity {
 
     private void buildMenu() {
         LinearLayout content = scrollContent(root(false));
+        Button home = button(getString(R.string.app_name), false);
+        home.setContentDescription(getString(R.string.back_to_puzzles));
+        home.setOnClickListener(v -> navigate(Screen.HUB));
+        addControl(content, home, 48, 8);
         LinearLayout heading = row();
         TextView title = text("Sudoku", 34, palette.ink);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -478,7 +517,7 @@ public final class MainActivity extends Activity {
             recreate();
         });
         content.addView(appearance);
-        addCopy(content, "System follows your device. Light and Dark apply only to Sudoku.", 14, palette.muted, 16);
+        addCopy(content, "System follows your device. Light and Dark apply to both puzzles.", 14, palette.muted, 16);
         for (Sudoku.Difficulty difficulty : Sudoku.Difficulty.values()) {
             boolean current = game != null && game.difficulty == difficulty;
             Switch auto = toggle("Auto notes: " + difficulty.label,
@@ -655,6 +694,7 @@ public final class MainActivity extends Activity {
         if (transferBusy) return;
         if (screen == Screen.SETTINGS) navigate(settingsReturn);
         else if (screen == Screen.PLAY || screen == Screen.WIN) navigate(Screen.MENU);
+        else if (screen == Screen.MENU) navigate(Screen.HUB);
         else finish();
     }
 
@@ -944,6 +984,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (board != null) board.clearEntryFeedback();
         updateElapsed(); resumed = false;
         handler.removeCallbacks(ticker);
         save();

@@ -18,9 +18,11 @@ public final class EngineTests {
         cellFirstInput();
         exhaustedDigitsAndModes();
         duplicatePrevention();
+        houseCompletion();
         persistence();
         CurationTests.run();
         DifficultyTests.run();
+        DailyWordTests.run();
         generation();
         System.out.println("PASS: " + checks + " engine assertions");
     }
@@ -34,6 +36,45 @@ public final class EngineTests {
         int[] solution = new int[81];
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) solution[r * 9 + c] = (r * 3 + r / 3 + c) % 9 + 1;
         return new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
+    }
+
+    private static void houseCompletion() {
+        int target = 40;
+        for (int mask = 0; mask < 8; mask++) {
+            Game g = blank();
+            System.arraycopy(g.solution, 0, g.values, 0, 81);
+            g.values[target] = g.values[80] = 0;
+            if ((mask & 1) == 0) g.values[36] = 0;
+            if ((mask & 2) == 0) g.values[4] = 0;
+            if ((mask & 4) == 0) g.values[30] = 0;
+            int expected = ((mask & 1) != 0 ? 1 << 4 : 0)
+                    | ((mask & 2) != 0 ? 1 << 13 : 0) | ((mask & 4) != 0 ? 1 << 22 : 0);
+            check(g.completedHouses(target) == 0, "Empty target never completes a house");
+            g.selected = target;
+            check(g.enter(g.solution[target]), "House fixture accepts actual move");
+            check(g.completedHouses(target) == expected, "Exact row/column/box completion combination " + mask);
+            check(!g.enter(g.solution[target]), "Same-number no-op does not produce a move");
+            check(g.clear() && g.completedHouses(target) == 0, "Clearing breaks completion");
+            check(g.undo() && g.completedHouses(target) == expected, "Undo preserves house validity without new move");
+            g.clear();
+            check(g.enter(g.solution[target]) && g.completedHouses(target) == expected,
+                    "A later real recompletion is detectable");
+        }
+        Game g = blank();
+        System.arraycopy(g.solution, 0, g.values, 0, 81);
+        for (int cell = 0; cell < 81; cell++) {
+            int expected = (1 << cell / 9) | (1 << (9 + cell % 9))
+                    | (1 << (18 + cell / 27 * 3 + cell % 9 / 3));
+            check(g.completedHouses(cell) == expected, "Every house maps correctly at cell " + cell);
+        }
+        g.values[36] = g.values[target];
+        check((g.completedHouses(target) & (1 << 4)) == 0, "Filled duplicate house is not complete");
+        check(g.completedHouses(-1) == 0, "Unselected input has no completed houses");
+        g = blank();
+        g.selected = target;
+        g.noteMode = true;
+        g.enter(9);
+        check(g.completedHouses(target) == 0, "Notes never complete houses");
     }
 
     private static void noteProvenance() {
@@ -301,6 +342,11 @@ public final class EngineTests {
                 Sudoku.Rating combined = Sudoku.rate(puzzle.clues, true);
                 if (difficulty == Sudoku.Difficulty.FOCUSED) {
                     check(hidden.solved && hidden.nakedSingles == 0, "Easy solved by hidden singles alone");
+                    long clues = Arrays.stream(puzzle.clues).filter(value -> value != 0).count();
+                    check(clues >= 36 && clues <= 40, "Generated Easy has gentler 36-40 clue density");
+                    check(DifficultyTests.openingHiddenSingles(puzzle.clues) >= 8,
+                            "Generated Easy offers at least eight distinct immediate hidden-single cells");
+                    DifficultyTests.verifyPuzzle(puzzle);
                 } else if (difficulty == Sudoku.Difficulty.MEDIUM) {
                     check(!hidden.solved && combined.solved && combined.nakedSingles > 0,
                             "Medium requires naked singles in addition to hidden singles");

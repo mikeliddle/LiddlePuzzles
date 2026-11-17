@@ -35,24 +35,33 @@ public final class DifficultyTests {
         return false;
     }
 
+    private static int[] hiddenWave(int[] values) {
+        int[] forced = new int[81];
+        for (int house = 0; house < 27; house++) for (int digit = 1; digit <= 9; digit++) {
+            int count = 0, last = -1;
+            for (int i = 0; i < 9; i++) {
+                int cell = houseCell(house, i);
+                if (values[cell] == 0 && (allowed(values, cell) & (1 << (digit - 1))) != 0) {
+                    count++; last = cell;
+                }
+            }
+            if (count == 1) {
+                check(forced[last] == 0 || forced[last] == digit, "Consistent hidden-single wave");
+                forced[last] = digit;
+            }
+        }
+        return forced;
+    }
+
+    static int openingHiddenSingles(int[] clues) {
+        return (int) Arrays.stream(hiddenWave(clues)).filter(value -> value != 0).count();
+    }
+
     private static int[] reference(int[] clues, boolean naked) {
         int[] values = clues.clone();
         while (true) {
-            int[] forced = new int[81];
             // Snapshot waves deliberately differ from the production's immediate-placement passes.
-            for (int house = 0; house < 27; house++) for (int digit = 1; digit <= 9; digit++) {
-                int count = 0, last = -1;
-                for (int i = 0; i < 9; i++) {
-                    int cell = houseCell(house, i);
-                    if (values[cell] == 0 && (allowed(values, cell) & (1 << (digit - 1))) != 0) {
-                        count++; last = cell;
-                    }
-                }
-                if (count == 1) {
-                    check(forced[last] == 0 || forced[last] == digit, "Consistent hidden-single wave");
-                    forced[last] = digit;
-                }
-            }
+            int[] forced = hiddenWave(values);
             if (naked) for (int cell = 0; cell < 81; cell++) {
                 if (values[cell] != 0) continue;
                 int mask = allowed(values, cell);
@@ -156,6 +165,8 @@ public final class DifficultyTests {
             if (difficulty == Sudoku.Difficulty.FOCUSED) {
                 check(puzzle.rating.hiddenSingles > 2 && puzzle.rating.nakedSingles == 0,
                         "Easy no longer limited by old hidden-single threshold");
+                check(Arrays.stream(puzzle.clues).filter(value -> value != 0).count() < 36,
+                        "Sparse hidden-only puzzles still classify Easy independently of generation policy");
                 for (int kind = 0; kind < 3; kind++) {
                     int houseKind = kind;
                     check(puzzle.rating.steps.stream().anyMatch(step -> step.house / 9 == houseKind),
@@ -171,6 +182,9 @@ public final class DifficultyTests {
         }
         Sudoku.Puzzle curated = new PuzzleLibrary.Entry(fixtures[0], Sudoku.Difficulty.HARD).puzzle();
         check(curated.difficulty == Sudoku.Difficulty.HARD, "Stored curated category is not overwritten by new rating");
+        Sudoku.Puzzle curatedEasy = new PuzzleLibrary.Entry(fixtures[0], Sudoku.Difficulty.FOCUSED).puzzle();
+        check(Arrays.equals(curatedEasy.clues, parse(fixtures[0])),
+                "Sparse curated Easy keeps exact original givens instead of generated-Easy additions");
         int[] unsolvable = parse("900000020070180000000905800003000600050003010207000080060000300000009500400072000");
         check(Sudoku.valid(unsolvable) && independentSolutions(unsolvable.clone(), 1) == 0,
                 "Unsolvable regression has no local duplicate but no solution");

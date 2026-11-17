@@ -685,6 +685,251 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals(400000L, settings().getLong("bestTime.HARD", -1));
     }
 
+    public void testRealTouchMotionRecording() throws Throwable {
+        for (int houses : new int[]{0, 7}) for (boolean digitFirst : new boolean[]{true, false}) {
+            Game fixture = houseFixture(houses);
+            write(fixture);
+            launch();
+            runTestOnUiThread(() -> findPrefix(activity.getWindow().getDecorView(), "Resume ").performClick());
+            waitForGame();
+            SystemClock.sleep(250);
+            getInstrumentation().waitForIdleSync();
+            runTestOnUiThread(() -> assertTrue(
+                    "This recording requires motion already enabled after Activity launch; never change the user's setting",
+                    android.animation.ValueAnimator.areAnimatorsEnabled()));
+            BoardView current = board();
+            int digit = fixture.solution[40];
+            View number = findText(digit + "\n" + fixture.remaining(digit));
+            assertNotNull(number);
+            int[] location = new int[2];
+            Rect bounds = new Rect();
+            runTestOnUiThread(() -> {
+                AccessibilityNodeInfo node = current.getAccessibilityNodeProvider().createAccessibilityNodeInfo(40);
+                node.getBoundsInScreen(bounds);
+                node.recycle();
+                number.getLocationOnScreen(location);
+            });
+            assertFalse("Board must have drawn its real cell bounds before touch injection", bounds.isEmpty());
+            float bankX = location[0] + number.getWidth() / 2f, bankY = location[1] + number.getHeight() / 2f;
+            if (digitFirst) pointerTap(bankX, bankY);
+            else pointerTap(bounds.exactCenterX(), bounds.exactCenterY());
+            assertEquals("First real tap establishes the input target", digitFirst ? digit : 0, saved().armedDigit);
+            assertEquals("Cell-first tap selects the actual cell", digitFirst ? -1 : 40, saved().selected);
+            String name = "sudoku-real-touch-" + (houses == 0 ? "entry" : "houses")
+                    + (digitFirst ? "-digit-first" : "-cell-first");
+            File directory = getInstrumentation().getTargetContext().getExternalFilesDir(null);
+            java.util.concurrent.atomic.AtomicReference<Throwable> recordingFailure = new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicBoolean observedMotion = new java.util.concurrent.atomic.AtomicBoolean();
+            long start = SystemClock.uptimeMillis();
+            Thread recording = new Thread(() -> {
+                StringBuilder times = new StringBuilder("frame,startMillis,endMillis,animatedCell,houses\n");
+                java.util.List<Bitmap> frames = new java.util.ArrayList<>();
+                try {
+                    for (int index = 0; SystemClock.uptimeMillis() - start < 1800; index++) {
+                        long before = SystemClock.uptimeMillis() - start;
+                        Bitmap frame = getInstrumentation().getUiAutomation().takeScreenshot();
+                        assertNotNull(frame);
+                        long after = SystemClock.uptimeMillis() - start;
+                        Bitmap smaller = Bitmap.createScaledBitmap(frame, 450,
+                                Math.round(frame.getHeight() * 450f / frame.getWidth()), true);
+                        frame.recycle();
+                        frames.add(smaller);
+                        int[] state = new int[2];
+                        runTestOnUiThread(() -> {
+                            state[0] = current.animatedCell();
+                            state[1] = current.animatedHouses();
+                        });
+                        if (state[0] == 40) {
+                            observedMotion.set(true);
+                            assertEquals(houses == 0 ? 0 : (1 << 4) | (1 << 13) | (1 << 22), state[1]);
+                        }
+                        String filename = name + "-" + index + ".png";
+                        times.append(filename).append(',').append(before).append(',').append(after)
+                                .append(',').append(state[0]).append(',').append(state[1]).append('\n');
+                    }
+                    for (int index = 0; index < frames.size(); index++) {
+                        Bitmap frame = frames.get(index);
+                        String filename = name + "-" + index + ".png";
+                        try (FileOutputStream stream = new FileOutputStream(new File(directory, filename))) {
+                            assertTrue(frame.compress(Bitmap.CompressFormat.PNG, 100, stream));
+                        }
+                    }
+                    Files.write(new File(directory, name + ".csv").toPath(),
+                            times.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Throwable ex) { recordingFailure.set(ex); }
+                finally { for (Bitmap frame : frames) frame.recycle(); }
+            });
+            recording.start();
+            try {
+                SystemClock.sleep(250);
+                if (digitFirst) pointerTap(bounds.exactCenterX(), bounds.exactCenterY());
+                else pointerTap(bankX, bankY);
+            } finally { recording.join(); }
+            if (recordingFailure.get() != null) throw recordingFailure.get();
+            assertEquals(fixture.solution[40], saved().values[40]);
+            assertTrue("Real touch must produce visible-time feedback: " + name, observedMotion.get());
+            assertEquals("Real-time feedback must finish", -1, current.animatedCell());
+            finishActivity();
+        }
+    }
+
+    private void pointerTap(float x, float y) {
+        long start = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(start, start, MotionEvent.ACTION_DOWN, x, y, 0);
+        MotionEvent up = MotionEvent.obtain(start, start + 60, MotionEvent.ACTION_UP, x, y, 0);
+        try {
+            getInstrumentation().sendPointerSync(down);
+            SystemClock.sleep(60);
+            getInstrumentation().sendPointerSync(up);
+        } finally { down.recycle(); up.recycle(); }
+    }
+
+    public void testHouseCompletionMotion() throws Throwable {
+        write(focused());
+        launch();
+        for (boolean dark : new boolean[]{false, true}) {
+            for (int mask = 1; mask < 8; mask++) {
+                final int houses = mask;
+                Bitmap[] frame = new Bitmap[1];
+                runTestOnUiThread(() -> {
+                    Game model = houseFixture(houses);
+                    BoardView preview = new BoardView(activity, new MainActivity.Palette(dark, 1));
+                    android.widget.FrameLayout host = new android.widget.FrameLayout(activity);
+                    host.addView(preview);
+                    preview.layout(0, 0, 900, 900);
+                    preview.setGame(model);
+                    assertEquals("Loading never celebrates", 0, preview.animatedHouses());
+                    int expected = ((houses & 1) != 0 ? 1 << 4 : 0)
+                            | ((houses & 2) != 0 ? 1 << 13 : 0)
+                            | ((houses & 4) != 0 ? 1 << 22 : 0);
+                    if (houses % 3 == 0) {
+                        model.toggleDigit(model.solution[40]);
+                        preview.getAccessibilityNodeProvider().performAction(40, AccessibilityNodeInfo.ACTION_CLICK, null);
+                    } else if (houses % 3 == 1) {
+                        model.selected = 40;
+                        preview.chooseDigit(model.solution[40]);
+                    } else {
+                        model.selected = 40;
+                        preview.onKeyDown(android.view.KeyEvent.KEYCODE_0 + model.solution[40],
+                                new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN,
+                                        android.view.KeyEvent.KEYCODE_0 + model.solution[40]));
+                    }
+                    boolean motion = android.animation.ValueAnimator.areAnimatorsEnabled();
+                    assertEquals(motion ? expected : 0, preview.animatedHouses());
+                    int union = 0;
+                    for (int cell = 0; cell < 81; cell++) {
+                        boolean member = ((houses & 1) != 0 && cell / 9 == 4)
+                                || ((houses & 2) != 0 && cell % 9 == 4)
+                                || ((houses & 4) != 0 && cell / 27 == 1 && cell % 9 / 3 == 1);
+                        assertEquals("Union has no duplicate/extra cells", motion && member, preview.animatesHouseCell(cell));
+                        if (preview.animatesHouseCell(cell)) union++;
+                    }
+                    int expectedSize = houses == 7 ? 21 : houses == 3 ? 17
+                            : Integer.bitCount(houses) == 2 ? 15 : 9;
+                    assertEquals(motion ? expectedSize : 0, union);
+                    if (motion) {
+                        try {
+                            java.lang.reflect.Field field = BoardView.class.getDeclaredField("entryAnimator");
+                            field.setAccessible(true);
+                            android.animation.ValueAnimator animator = (android.animation.ValueAnimator) field.get(preview);
+                            assertEquals(900L, animator.getDuration());
+                            animator.setCurrentPlayTime(300);
+                        } catch (ReflectiveOperationException ex) {
+                            throw new AssertionError("Cannot sample native house animation", ex);
+                        }
+                    }
+                    frame[0] = Bitmap.createBitmap(900, 900, Bitmap.Config.ARGB_8888);
+                    preview.draw(new android.graphics.Canvas(frame[0]));
+                    preview.clearEntryFeedback();
+                    Bitmap resting = Bitmap.createBitmap(900, 900, Bitmap.Config.ARGB_8888);
+                    preview.draw(new android.graphics.Canvas(resting));
+                    for (int cell = 0; cell < 81; cell++) {
+                        boolean member = ((houses & 1) != 0 && cell / 9 == 4)
+                                || ((houses & 2) != 0 && cell % 9 == 4)
+                                || ((houses & 4) != 0 && cell / 27 == 1 && cell % 9 / 3 == 1);
+                        float size = Math.min(900 - 4 * activity.getResources().getDisplayMetrics().density,
+                                900 - 12 * activity.getResources().getDisplayMetrics().density);
+                        float unit = size / 9;
+                        int x = Math.round((900 - size) / 2 + (cell % 9 + .15f) * unit);
+                        int y = Math.round((900 - size) / 2 + (cell / 9 + .8f) * unit);
+                        assertEquals("Only union cells receive one coordinated highlight",
+                                motion && member, frame[0].getPixel(x, y) != resting.getPixel(x, y));
+                    }
+                    resting.recycle();
+                    model.selected = 40;
+                    preview.chooseDigit(model.solution[40]);
+                    assertEquals("No-op never celebrates", -1, preview.animatedCell());
+                    model.selected = 40;
+                    model.clear();
+                    assertEquals("Clear does not celebrate", 0, preview.animatedHouses());
+                    model.undo();
+                    assertEquals("Undo does not celebrate", 0, preview.animatedHouses());
+                    model.selected = 40;
+                    model.clear();
+                    model.selected = 40;
+                    preview.chooseDigit(model.solution[40]);
+                    assertEquals("A later real completion can celebrate", motion ? expected : 0, preview.animatedHouses());
+                    model.selected = 80;
+                    preview.chooseDigit(model.solution[80]);
+                    assertFalse("Rapid input removes the earlier house union", preview.animatesHouseCell(36));
+                    preview.onWindowVisibilityChanged(View.INVISIBLE);
+                    assertEquals("Hidden board clears motion", -1, preview.animatedCell());
+                    assertEquals(0, preview.animatedHouses());
+                    preview.setGame(houseFixture(houses));
+                    assertEquals("New game never replays completion", 0, preview.animatedHouses());
+                });
+                File directory = getInstrumentation().getTargetContext().getExternalFilesDir(null);
+                try (FileOutputStream stream = new FileOutputStream(new File(directory,
+                        "sudoku-house-" + (dark ? "dark" : "light") + "-" + mask + ".png"))) {
+                    assertTrue(frame[0].compress(Bitmap.CompressFormat.PNG, 100, stream));
+                }
+                frame[0].recycle();
+            }
+        }
+        runTestOnUiThread(() -> {
+            BoardView preview = new BoardView(activity);
+            android.widget.FrameLayout host = new android.widget.FrameLayout(activity);
+            host.addView(preview);
+            Game model = houseFixture(7);
+            preview.setGame(model);
+            model.selected = 40;
+            preview.chooseDigit(model.solution[39]);
+            assertEquals("Rejected entry never celebrates", 0, preview.animatedHouses());
+            assertEquals(40, preview.rejectedCell());
+            model.selected = 40;
+            model.noteMode = true;
+            preview.chooseDigit(model.solution[40]);
+            assertEquals("Notes never celebrate", -1, preview.animatedCell());
+            model.noteMode = false;
+            model.selected = 40;
+            preview.chooseDigit(model.solution[40]);
+            preview.onDetachedFromWindow();
+            assertEquals("Detach clears feedback", 0, preview.animatedHouses());
+            assertEquals(-1, preview.animatedCell());
+            model = houseFixture(7);
+            model.values[80] = model.solution[80];
+            model.selected = 40;
+            preview.setGame(model);
+            preview.chooseDigit(model.solution[40]);
+            assertTrue(model.won());
+            assertEquals("Final entry yields to the existing win animation", -1, preview.animatedCell());
+            assertEquals(0, preview.animatedHouses());
+        });
+    }
+
+    private Game houseFixture(int houses) {
+        int[] solution = new int[81];
+        for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++)
+            solution[r * 9 + c] = (r * 3 + r / 3 + c) % 9 + 1;
+        Game model = new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
+        System.arraycopy(solution, 0, model.values, 0, 81);
+        model.values[40] = model.values[80] = 0;
+        if ((houses & 1) == 0) model.values[36] = 0;
+        if ((houses & 2) == 0) model.values[4] = 0;
+        if ((houses & 4) == 0) model.values[30] = 0;
+        return model;
+    }
+
     public void testNumberFirstSwitchingAndEntryFeedback() throws Throwable {
         int[] solution = new int[81];
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++)
@@ -779,28 +1024,29 @@ public final class DeviceTests extends InstrumentationTestCase {
             board().getAccessibilityNodeProvider().performAction(4, AccessibilityNodeInfo.ACTION_CLICK, null);
             if (android.animation.ValueAnimator.areAnimatorsEnabled()) assertEquals(4, board().animatedCell());
         });
-        SystemClock.sleep(400);
+        SystemClock.sleep(600);
         assertEquals("Animation clears naturally", -1, board().animatedCell());
         clickNumber(2); selectCell(board(), 5);
         clickText("Sudoku");
         assertEquals("Outside cancellation clears feedback", -1, board().animatedCell());
         assertEquals(0, saved().armedDigit);
         assertEquals(-1, saved().selected);
-        String originalScale = android.provider.Settings.Global.getString(
-                activity.getContentResolver(), android.provider.Settings.Global.ANIMATOR_DURATION_SCALE);
-        try {
-            shell("settings put global animator_duration_scale 0");
-            SystemClock.sleep(200);
+        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) {
             runTestOnUiThread(() -> {
                 assertFalse(android.animation.ValueAnimator.areAnimatorsEnabled());
                 board().chooseDigit(3);
                 board().getAccessibilityNodeProvider().performAction(6, AccessibilityNodeInfo.ACTION_CLICK, null);
                 assertEquals(-1, board().animatedCell());
+                Game house = houseFixture(7);
+                BoardView preview = new BoardView(activity);
+                preview.setGame(house);
+                house.selected = 40;
+                preview.chooseDigit(house.solution[40]);
+                assertEquals("Disabled motion never starts a house effect", 0, preview.animatedHouses());
+                assertEquals(-1, preview.animatedCell());
+                assertEquals(house.solution[40], house.values[40]);
             });
             assertEquals(3, saved().values[6]);
-        } finally {
-            shell(originalScale == null ? "settings delete global animator_duration_scale"
-                    : "settings put global animator_duration_scale " + originalScale);
         }
     }
 
@@ -904,51 +1150,11 @@ public final class DeviceTests extends InstrumentationTestCase {
         getInstrumentation().waitForIdleSync();
     }
 
-    public void testSudokuLauncherIcon() throws Exception {
+    public void testLiddlePuzzlesLauncherIcon() throws Throwable {
         android.content.Context context = getInstrumentation().getTargetContext();
-        String namespace = "http://schemas.android.com/apk/res/android";
-        int[] givens = new int[81];
-        int count = 0;
-        boolean cells = false, boxes = false, outline = false;
-        try (android.content.res.XmlResourceParser xml = context.getResources().getXml(R.drawable.ic_sudoku)) {
-            while (xml.next() != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
-                if (xml.getEventType() != org.xmlpull.v1.XmlPullParser.START_TAG) continue;
-                String name = xml.getAttributeValue(namespace, "name");
-                if ("cell_lines".equals(name) || "box_lines".equals(name)) {
-                    boolean thick = "box_lines".equals(name);
-                    StringBuilder expected = new StringBuilder();
-                    for (boolean vertical : new boolean[]{true, false}) {
-                        for (int i = 1; i < 9; i++) {
-                            if ((i % 3 == 0) != thick) continue;
-                            float coordinate = 31.5f + i * 5;
-                            expected.append(vertical ? "M" + coordinate + ",31.5V76.5"
-                                    : "M31.5," + coordinate + "H76.5");
-                        }
-                    }
-                    assertEquals("Exactly nine equal cells and three equal boxes per axis",
-                            expected.toString(), xml.getAttributeValue(namespace, "pathData"));
-                    assertEquals(thick ? "0.75" : "0.3", xml.getAttributeValue(namespace, "strokeWidth"));
-                    if (thick) boxes = true; else cells = true;
-                } else if ("board_outline".equals(name)) {
-                    assertEquals("M31.5,31.5H76.5V76.5H31.5Z", xml.getAttributeValue(namespace, "pathData"));
-                    outline = true;
-                } else if (name != null && name.startsWith("given_")) {
-                    java.util.regex.Matcher match = java.util.regex.Pattern.compile("given_r([0-8])_c([0-8])_([1-9])").matcher(name);
-                    assertTrue(match.matches());
-                    int row = Integer.parseInt(match.group(1)), column = Integer.parseInt(match.group(2));
-                    assertEquals(0, givens[row * 9 + column]);
-                    givens[row * 9 + column] = Integer.parseInt(match.group(3));
-                    assertEquals(32.9f + column * 5, Float.parseFloat(xml.getAttributeValue(namespace, "translateX")), .001f);
-                    assertEquals(32.4f + row * 5, Float.parseFloat(xml.getAttributeValue(namespace, "translateY")), .001f);
-                    count++;
-                }
-            }
-        }
-        assertTrue(cells && boxes && outline);
-        assertEquals(9, count);
-        assertTrue("No conflicting givens", Sudoku.valid(givens));
-        assertEquals("Givens extend to a valid completed Sudoku", 1, Sudoku.solutions(givens, 1));
-        assertContrast("Launcher numerals", context.getColor(R.color.launcher_ink), 0xFFFFF9ED, 4.5);
+        assertEquals("Liddle Puzzles", context.getString(R.string.app_name));
+        assertEquals("Liddle Puzzles validation", context.getPackageManager()
+                .getApplicationLabel(context.getApplicationInfo()).toString());
         android.graphics.drawable.Drawable displayedIcon =
                 context.getPackageManager().getApplicationIcon(context.getPackageName());
         assertNotNull(displayedIcon);
@@ -956,44 +1162,121 @@ public final class DeviceTests extends InstrumentationTestCase {
         try (android.content.res.XmlResourceParser xml = context.getResources().getXml(R.mipmap.ic_launcher)) {
             icon = android.graphics.drawable.Drawable.createFromXml(context.getResources(), xml);
         }
-        assertTrue("Packaged launcher asset is adaptive even when OEM themes wrap app icons",
+        assertTrue("Packaged icon is adaptive even when OEM themes wrap app icons",
                 icon instanceof android.graphics.drawable.AdaptiveIconDrawable);
-        android.graphics.drawable.Drawable foreground = context.getDrawable(R.drawable.ic_sudoku);
-        Bitmap sheet = Bitmap.createBitmap(576, 288, Bitmap.Config.ARGB_8888);
-        android.graphics.Canvas canvas = new android.graphics.Canvas(sheet);
-        canvas.drawColor(0xFFDFE5E0);
-        for (int size : new int[]{48, 192}) {
-            int x = size == 48 ? 36 : 132;
-            android.graphics.drawable.Drawable rendered = size == 192 ? displayedIcon : icon;
-            rendered.setBounds(x, 48, x + size, 48 + size);
-            rendered.draw(canvas);
-            assertEquals("Warm-white board at launcher sizes", 0xFFFFF9ED, sheet.getPixel(x + size / 2, 48 + size / 2));
+        android.graphics.drawable.Drawable foreground = context.getDrawable(R.drawable.ic_liddle_puzzles);
+        assertNotNull(foreground);
+        foreground = foreground.mutate();
+        Bitmap content = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888);
+        foreground.setBounds(0, 0, 432, 432);
+        foreground.draw(new android.graphics.Canvas(content));
+        assertEquals("L interior stays transparent after cloning", 0, content.getPixel(216, 216) >>> 24);
+        assertEquals("Stem tiles stay separate", 0, content.getPixel(164, 161) >>> 24);
+        assertEquals("Foot tiles stay separate", 0, content.getPixel(195, 280) >>> 24);
+        for (int[] point : new int[][]{{164, 136}, {164, 184}, {164, 232}, {164, 280}, {224, 280}, {280, 280}}) {
+            assertEquals("All six L tiles are white", 0xFFFFFFFF, content.getPixel(point[0], point[1]));
         }
-        canvas.save();
-        android.graphics.Path circle = new android.graphics.Path();
-        circle.addCircle(456, 144, 96, android.graphics.Path.Direction.CW);
-        canvas.clipPath(circle);
-        canvas.drawColor(context.getColor(R.color.launcher_background));
-        canvas.translate(360, 48);
-        canvas.scale(192f / 72, 192f / 72);
-        foreground.setBounds(-18, -18, 90, 90);
-        foreground.draw(canvas);
-        canvas.restore();
-        assertEquals("Orange circle mask background", 0xFFFF8500, sheet.getPixel(456, 60));
-        assertEquals("Board survives a circular launcher mask", 0xFFFFF9ED, sheet.getPixel(456, 144));
-        Bitmap content = Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888);
+        content.recycle();
+        content = Bitmap.createBitmap(108, 108, Bitmap.Config.ARGB_8888);
         foreground.setBounds(0, 0, 108, 108);
         foreground.draw(new android.graphics.Canvas(content));
         for (int y = 0; y < 108; y++) for (int x = 0; x < 108; x++) {
             if ((content.getPixel(x, y) >>> 24) != 0) {
-                assertTrue("Artwork stays within the adaptive safe circle",
+                assertTrue("Entire L stays within the adaptive safe circle",
                         Math.hypot(x + .5 - 54, y + .5 - 54) <= 33.75);
             }
         }
         content.recycle();
-        try (FileOutputStream stream = new FileOutputStream(new File(context.getExternalFilesDir(null), "sudoku-launcher-native.png"))) {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            assertNotNull("Android 13+ supplies a themed-icon layer",
+                    ((android.graphics.drawable.AdaptiveIconDrawable) icon).getMonochrome());
+        }
+        Bitmap sheet = Bitmap.createBitmap(960, 860, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas canvas = new android.graphics.Canvas(sheet);
+        canvas.drawColor(0xFFE9EAEC);
+        android.graphics.Paint text = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        text.setColor(0xFF222222); text.setTextSize(32);
+        text.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        canvas.drawText("Liddle Puzzles", 40, 54, text);
+        String[] labels = {"Rounded", "Circle", "Squircle", "Themed light", "Themed dark", "Huawei / OEM"};
+        for (int panel = 0; panel < labels.length; panel++) {
+            int left = panel % 3 * 320, top = 100 + panel / 3 * 370;
+            text.setTextSize(23);
+            canvas.drawText(labels[panel], left + 40, top, text);
+            for (int size : new int[]{192, 48}) {
+                int x = left + (320 - size) / 2, y = top + (size == 192 ? 25 : 245);
+                if (panel == 5) {
+                    displayedIcon.setBounds(x, y, x + size, y + size);
+                    displayedIcon.draw(canvas);
+                } else {
+                    canvas.save();
+                    canvas.translate(x, y);
+                    canvas.scale(size / 72f, size / 72f);
+                    canvas.clipPath(launcherMask(panel));
+                    canvas.drawColor(panel == 3 ? 0xFFE0E0E0 : panel == 4 ? 0xFF303030
+                            : context.getColor(R.color.launcher_background));
+                    android.graphics.drawable.Drawable mark = context.getDrawable(R.drawable.ic_liddle_puzzles).mutate();
+                    if (panel == 3 || panel == 4) mark.setTint(panel == 3 ? 0xFF222222 : 0xFFEEEEEE);
+                    mark.setBounds(-18, -18, 90, 90);
+                    mark.draw(canvas);
+                    canvas.restore();
+                }
+                if (panel < 3) {
+                    assertEquals("L interior remains dark at both launcher sizes", 0xFF121212,
+                            sheet.getPixel(x + size / 2, y + size / 2));
+                }
+            }
+        }
+        text.setTextSize(21);
+        canvas.drawText("Native Android vectors at 192 px and 48 px", 40, 824, text);
+        try (FileOutputStream stream = new FileOutputStream(new File(context.getExternalFilesDir(null), "liddle-puzzles-icon-native.png"))) {
             assertTrue(sheet.compress(Bitmap.CompressFormat.PNG, 100, stream));
-        } finally { sheet.recycle(); }
+        }
+        Bitmap preview = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas previewCanvas = new android.graphics.Canvas(preview);
+        previewCanvas.scale(512f / 72, 512f / 72);
+        previewCanvas.clipPath(launcherMask(0));
+        previewCanvas.drawColor(context.getColor(R.color.launcher_background));
+        foreground.setBounds(-18, -18, 90, 90);
+        foreground.draw(previewCanvas);
+        try (FileOutputStream stream = new FileOutputStream(new File(context.getExternalFilesDir(null), "liddle-puzzles-icon.png"))) {
+            assertTrue(preview.compress(Bitmap.CompressFormat.PNG, 100, stream));
+        } finally { preview.recycle(); }
+        activity = getInstrumentation().startActivitySync(new Intent(context, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        getInstrumentation().waitForIdleSync();
+        assertNotNull(findNamed(activity.getWindow().getDecorView(), "Liddle Puzzles"));
+        assertNotNull(findNamed(activity.getWindow().getDecorView(), "Daily Word"));
+        capture("liddle-puzzles-hub.png");
+        runTestOnUiThread(() -> {
+            android.widget.ImageView image = new android.widget.ImageView(activity);
+            image.setImageBitmap(sheet);
+            image.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            image.setBackgroundColor(0xFFE9EAEC);
+            image.setContentDescription("Liddle Puzzles launcher icon mask and size previews");
+            activity.setContentView(image);
+        });
+        getInstrumentation().waitForIdleSync();
+        SystemClock.sleep(650);
+        Bitmap screenshot = getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull("Native preview screenshot captured", screenshot);
+        try (FileOutputStream stream = new FileOutputStream(new File(context.getExternalFilesDir(null), "liddle-puzzles-icon-screen.png"))) {
+            assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, stream));
+        } finally { screenshot.recycle(); }
+    }
+
+    private static android.graphics.Path launcherMask(int shape) {
+        android.graphics.Path path = new android.graphics.Path();
+        if (shape == 1) path.addCircle(36, 36, 36, android.graphics.Path.Direction.CW);
+        else if (shape == 2) {
+            path.moveTo(36, 0);
+            path.cubicTo(66, 0, 72, 6, 72, 36);
+            path.cubicTo(72, 66, 66, 72, 36, 72);
+            path.cubicTo(6, 72, 0, 66, 0, 36);
+            path.cubicTo(0, 6, 6, 0, 36, 0);
+            path.close();
+        } else path.addRoundRect(0, 0, 72, 72, 17, 17, android.graphics.Path.Direction.CW);
+        return path;
     }
 
     public void testPaddedEraseControls() throws Throwable {
@@ -1070,7 +1353,13 @@ public final class DeviceTests extends InstrumentationTestCase {
             fixture.setAutoNotes(true);
             fixture.values[0] = 9;
             fixture.showMistakes = mistakes;
-            write(fixture); launch(); clickPrefix("Resume ");
+            write(fixture); launch();
+            runTestOnUiThread(() -> {
+                View resume = findPrefix(activity.getWindow().getDecorView(), "Resume ");
+                assertNotNull("Rejection fixture starts from the native resume menu", resume);
+                assertTrue(resume.performClick());
+            });
+            waitForGame();
             assertNull(findPrefix(activity.getWindow().getDecorView(), "Choose a number"));
             assertNull(findPrefix(activity.getWindow().getDecorView(), "Number bank"));
             assertNull(findText("Undo"));
@@ -1081,7 +1370,8 @@ public final class DeviceTests extends InstrumentationTestCase {
             assertNotNull(timer);
             assertEquals(android.view.Gravity.CENTER, timer.getGravity());
             assertFalse(timer.getText().toString().contains("filled"));
-            clickNumber(9);
+            runTestOnUiThread(() -> assertTrue(findText("9\n8").performClick()));
+            assertEquals("Rejection fixture has armed its conflicting digit", 9, saved().armedDigit);
             assertNull(findPrefix(activity.getWindow().getDecorView(), "9 selected."));
             for (int target : new int[]{8, 72, 10}) {
                 Game before = saved();
@@ -1711,6 +2001,11 @@ public final class DeviceTests extends InstrumentationTestCase {
         activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         getInstrumentation().waitForIdleSync();
+        View sudoku = findText("Sudoku");
+        if (sudoku != null) {
+            getInstrumentation().runOnMainSync(sudoku::performClick);
+            getInstrumentation().waitForIdleSync();
+        }
         for (int i = 0; i < 100; i++) {
             View easy = findPrefix(activity.getWindow().getDecorView(), "Easy");
             if (easy != null && easy.isEnabled()) return;

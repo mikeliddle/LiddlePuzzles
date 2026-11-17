@@ -2,7 +2,7 @@
 
 Effective date: November 6, 2026.
 
-Sudoku is an offline app. It does not collect or transmit personal data,
+Liddle Puzzles (Sudoku and Daily Word) is an offline app. It does not collect or transmit personal data,
 usage data, device identifiers, or crash reports to the developer or any
 third party. It has no accounts, advertising, analytics, network permission,
 or internet-connected features.
@@ -10,6 +10,10 @@ or internet-connected features.
 The app stores your current puzzle, entries, notes, undo history, active solve
 time, personal-best times, and appearance/gameplay preferences locally in
 app-private storage. These are used only to provide the game on your device.
+Daily Word also stores each played local calendar date, submitted guesses,
+and unfinished draft in a separate app-private file. Changing dates or
+switching puzzles does not reset those records. The daily answer is computed
+from bundled data and your device's local date; there is no server check-in.
 The app disables Android cloud backup. Some devices may apply their own
 device-transfer behavior; the app itself does not upload or synchronize data.
 

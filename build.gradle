@@ -8,10 +8,13 @@ tasks.register('compileEngineTests', JavaCompile) {
         'app/src/main/java/com/quietgrid/sudoku/Game.java',
         'app/src/main/java/com/quietgrid/sudoku/PuzzleLibrary.java',
         'app/src/main/java/com/quietgrid/sudoku/PuzzleJson.java',
+        'app/src/main/java/com/quietgrid/sudoku/DailyWord.java',
         'app/src/test/java/com/quietgrid/sudoku/EngineTests.java',
         'app/src/test/java/com/quietgrid/sudoku/CurationTests.java',
         'app/src/test/java/com/quietgrid/sudoku/DifficultyTests.java',
-        'app/src/test/java/com/quietgrid/sudoku/ClassificationBatch.java'
+        'app/src/test/java/com/quietgrid/sudoku/DailyWordTests.java',
+        'app/src/test/java/com/quietgrid/sudoku/ClassificationBatch.java',
+        'app/src/test/java/com/quietgrid/sudoku/EasyGenerationBatch.java'
     )
     classpath = files()
     destinationDirectory = layout.buildDirectory.dir('engine-tests')
@@ -30,4 +33,12 @@ tasks.register('classificationBatch', JavaExec) {
     classpath = files(layout.buildDirectory.dir('engine-tests'))
     mainClass = 'com.quietgrid.sudoku.ClassificationBatch'
     args layout.projectDirectory.dir('dist/puzzle-classification-20261111').asFile.absolutePath
+}
+
+tasks.register('easyGenerationBatch', JavaExec) {
+    dependsOn 'compileEngineTests'
+    classpath = files(layout.buildDirectory.dir('engine-tests'))
+    mainClass = 'com.quietgrid.sudoku.EasyGenerationBatch'
+    args layout.projectDirectory.dir('dist/easy-generation-20261116').asFile.absolutePath,
+            providers.gradleProperty('easyBatchStage').orElse('after').get()
 }

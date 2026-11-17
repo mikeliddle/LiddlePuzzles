@@ -132,6 +132,20 @@ public final class Game {
         return count;
     }
 
+    int completedHouses(int cell) {
+        if (cell < 0 || cell >= 81) return 0;
+        int[] houses = {cell / 9, 9 + cell % 9, 18 + cell / 27 * 3 + cell % 9 / 3};
+        int complete = 0;
+        for (int h = 0; h < houses.length; h++) {
+            int digits = 0;
+            for (int member : Sudoku.HOUSES[houses[h]]) {
+                if (values[member] != 0) digits |= Sudoku.bit(values[member]);
+            }
+            if (digits == Sudoku.ALL) complete |= 1 << houses[h];
+        }
+        return complete;
+    }
+
     public boolean won() { return Arrays.equals(values, solution); }
 
     private void checkpoint() {

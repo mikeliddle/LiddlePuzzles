@@ -21,7 +21,7 @@ if (unsignedRelease == null && signingPropertiesFile.exists()) {
 
 def legalAssets = tasks.register('prepareLegalAssets', Sync) {
     from(rootProject.projectDir) {
-        include 'LICENSE', 'PRIVACY.md', 'THIRD_PARTY_NOTICES.md', 'licenses/APACHE-2.0.txt'
+        include 'LICENSE', 'PRIVACY.md', 'THIRD_PARTY_NOTICES.md', 'licenses/*.txt'
     }
     into layout.buildDirectory.dir('generated/legalAssets/legal')
 }
@@ -68,7 +68,7 @@ android {
         validation {
             initWith debug
             applicationIdSuffix '.validation'
-            manifestPlaceholders = [appLabel: 'Sudoku validation']
+            manifestPlaceholders = [appLabel: 'Liddle Puzzles validation']
         }
         release {
             debuggable false

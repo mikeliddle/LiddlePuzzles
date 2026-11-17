@@ -1,6 +1,6 @@
-# Sudoku for Android
+# Liddle Puzzles — Sudoku and Daily Word for Android
 
-A standalone, offline native Android app. Open this project in Android Studio.
+A standalone, offline native Android puzzle app. Open this project in Android Studio.
 There is no in-app account, advertising, analytics, or network permission.
 Optional offline curated collections supplement an unlimited generated supply.
 
@@ -10,8 +10,9 @@ licenses.
 
 ## Download
 
-Download **Sudoku-1.0.apk** from the
+The existing public **Sudoku-1.0.apk** is available from the
 [latest GitHub Release](https://github.com/mikeliddle/Sudoku/releases/latest).
+It predates the Liddle Puzzles hub and Daily Word additions in this source checkout.
 It is a signed sideload build for Android 10 and newer; no app store or account
 is needed. Open the downloaded APK to install, allowing installation from that
 specific browser/file manager only if Android requests it. Do not bypass
@@ -23,10 +24,69 @@ development installation; preserve any development saves before switching.
 
 ## Play
 
-The launcher icon is a pumpkin-orange adaptive icon with an upright warm-white
-9x9 Sudoku grid, heavier 3x3 dividers, and nine nonconflicting givens.
+The launcher icon is a bold white capital L assembled from six separated puzzle
+tiles on a near-black field, with a tall stem and a clear horizontal foot.
+Native vectors keep the mark crisp at launcher sizes. Adaptive and round icons
+share the same safely inset artwork; Android 13+ themed icons use its transparent
+monochrome silhouette.
 
-The app opens on the difficulty-selection menu. **Resume** continues your unfinished
+The app opens on **Liddle Puzzles**, with **Sudoku** and **Daily Word**. Settings applies
+appearance and accent choices to both modes. The application ID remains
+`com.quietgrid.sudoku`: compatible updates retain existing Sudoku games, notes,
+preferences, best times, and puzzle records without changing their save format.
+Each mode has independent progress.
+The Liddle Puzzles rename changes display branding only; legacy internal names,
+the local signing-directory path and the frozen Daily Word schedule stay unchanged.
+
+### Daily Word
+
+Find a five-letter English word in six guesses, using the in-app letter keyboard
+or a physical keyboard. The custom three-row QWERTY keyboard has staggered,
+uniform-size letter keys, Delete at the right of the middle row, and Enter at
+the right of the bottom row. The back arrow returns to Liddle Puzzles. There is no
+help button, visible date, solved-result banner or midnight reminder; error
+feedback appears only when needed, and a loss still reveals the answer.
+Green/check means correct spot; gold/open circle means
+in the word, different spot; gray/dash means no remaining copy of that letter.
+Exact matches are counted first, then misplaced copies from left to right,
+so repeated letters cannot receive excess credit. TalkBack can read each row's
+letters and feedback; the keyboard retains the strongest result for each letter.
+Invalid, short, or already-tried guesses show an error without consuming an attempt.
+Finished boards remain visible; a loss reveals the answer. There is no timer,
+account, network permission, server, social feature, or notification.
+
+The immutable **local-v1** schedule uses `LocalDate`, not elapsed 24-hour periods:
+
+```
+epoch = 2026-11-16
+index = floorMod(localDate.toEpochDay() - epoch.toEpochDay(), 619)
+answer = answers-v1.txt[index]
+```
+
+Devices on the **same local calendar date** get the same answer, independent of
+installation, locale, time zone, random state, and connectivity. Local midnight
+changes the puzzle; devices on different dates can differ. The app checks on resume,
+at midnight while open, and on date/time/time-zone broadcasts, including DST and
+leap days. Each date's guesses and unfinished draft are saved independently in
+`daily-word-v1.bin`; returning to an already played date never resets it.
+Failed saves keep the previous state and show an explicit error. Unreadable records
+are not silently replaced.
+
+This is a finite **619-day repeating cycle**, not unlimited distinct words. The
+619 distinct answer words were selected locally from ordinary English vocabulary,
+then ordered once by ascending SHA-256 of ASCII `quietgrid-local-v1:` + word.
+The bundled ordering and modulus are frozen; updates must not reorder, replace,
+append to, or otherwise remap this v1 schedule. Its SHA-256 is
+`c74528789b30d50ecc6a9d04fb8cfa05ebe160a79fa5dce80c9b111690b7f7f6`.
+The broader 12,653-entry guess vocabulary comes from the CC0 Letterpress/Words
+dictionary, pinned and attributed in `THIRD_PARTY_NOTICES.md`. Guesses include
+US, UK and Australian spellings and some uncommon words. No proprietary word
+schedule, source, branding or artwork is used. As in any offline daily puzzle,
+someone can inspect the APK or change their clock; this is not cheat-proof.
+
+### Sudoku
+
+The Sudoku screen opens on the difficulty-selection menu. **Resume** continues your unfinished
 saved game; selecting a new difficulty asks before replacing it. **Settings**
 contains Auto notes, Show mistakes, and Red, Orange, Yellow, Green, Blue, Pink,
 Purple, and Brown color swatches in a compact two-row grid, with an outlined
@@ -99,13 +159,13 @@ animators are disabled to avoid clipped, inconsistent shadows.
 ## Puzzle generation and difficulty
 
 Every generated puzzle starts with a randomized backtracking solution.
-One shuffled greedy pass tries removing each of the 81 givens, keeping a removal
+To form a common candidate pool, one shuffled greedy pass tries removing each of the 81 givens, keeping a removal
 only when a separate solution-counting search establishes exactly one solution.
 This common candidate pool has no difficulty filter or clue-count target.
 The requested tier is selected by rejection sampling from that pool, using these
-fixed-point human-technique rules:
+fixed-point human-technique classification rules:
 
-| Mode | Acceptance contract |
+| Mode | Classification contract |
 |---|---|
 | Easy | Solved using hidden singles alone: for a digit, exactly one legal empty square remains in a row, column or 3x3 box, after excluding all filled peers. Repeat full number-by-number passes until solved or a pass places nothing. |
 | Medium | Hidden singles alone stall. Restart from the original givens and repeatedly apply both hidden singles and naked singles (a square with only one legal candidate). These two rules together solve the puzzle. |
@@ -120,11 +180,52 @@ Hard no longer promises completion by a particular advanced logical solver:
 it means precisely that these two simple rules do not finish.
 
 These are operational rules, not universal human difficulty ratings.
+Fresh **generated Easy** puzzles have a separate gentleness policy: after finding
+a hidden-only-solvable candidate, restore randomly selected correct givens to a
+random target of **36-40 clues**. Accept only if the resulting puzzle still rates
+Easy and has **at least eight distinct hidden-single cells available immediately**
+in its original givens, without first making any placements. A cell forced in
+multiple houses counts once. Restoring correct givens preserves uniqueness; the
+hidden-only fixed-point solver certifies the final puzzle again. This deliberately
+adds scanning opportunities instead of serving a sparse irreducible Easy.
+Medium, Hard and the unfiltered common candidate pool are unchanged.
+
 Generation remains bounded at 180 candidates, cancellable and off the UI thread;
 failure reports a retryable error rather than substituting another tier.
 Legacy `FOCUSED`/`MEDIUM`/`HARD` save IDs, saved games, curated categories and
-human votes are unchanged. Only fresh generated puzzles use the new acceptance
-rules; imported curated categories remain the curator's choice.
+human votes are unchanged. The gentleness policy only affects newly generated
+Easy puzzles, not the current game. **Unseen curated puzzles are still offered
+first** using the curator's stored labels and exact givens, so a sparse curated
+Easy can still feel harder; importing a collection does not apply this policy.
+
+### Generated-Easy calibration
+
+The pre-change generator stripped every removable given even from Easy puzzles:
+hidden-only solvability did not ensure easy human scanning. A fixed, paired sample
+of 100 requested Easy games, seeds **2026111600-2026111699**, measured:
+
+| Metric | Before: range (mean) | Gentler generation: range (mean) |
+|---|---|---|
+| Starting clues | 21-27 (24.37) | 36-40 (37.75) |
+| Immediate hidden-single cells | 3-11 (5.67) | 9-26 (16.19) |
+| Hidden-only solver passes | 5-12 (7.56) | 2-5 (3.42) |
+
+All 100 pairs retain the same solution and every original given. Every puzzle
+has an independent uniqueness proof, independently replayed solving trace and
+matching snapshot-wave fixed point. Twelve fixed-seed outputs each from the
+common pool, Medium and Hard are byte-identical before/after. Opening counts
+exclude cascades; solver passes include the terminal no-change pass and depend
+on scan order. These are measurable scanning proxies, not a human usability
+study or a natural difficulty distribution. The after run spent 2.318 seconds
+generating 100 games on this computer; this is not a phone performance claim.
+
+Run `.\gradlew.bat --no-daemon easyGenerationBatch` to reproduce the current
+100-game sample in `dist\easy-generation-20261116\after`. The archived `before`
+sample was captured before changing production code; `-PeasyBatchStage=before`
+only changes the output label, not the algorithm. The directory includes
+`puzzles.csv`, `traces.csv`, `controls.csv` and `summary.json` for each stage,
+plus `comparison.json`, the original generator source in `baseline-source`,
+and `verification.log` from the implementation run.
 
 ### Reproducible 100-puzzle experiment
 
@@ -477,8 +578,26 @@ outside taps, given-cell behavior, note editing, exhausted digits, mode switchin
 menu/resume timing, settings/colors, win flow, both layouts, rotation, recreation,
 and generation on hardware. Swatch checks cover every accent-selection transition
 in both appearances, including native drawable colors and rendered pixels.
+Successful number entry pops from 65% to 135% size before settling to normal over
+480 ms, with a bounded expanding accent outline. A move that newly completes a
+valid row, column or box adds a brighter 900 ms wave with a held crest and a
+single outline around the union of those houses; overlapping cells are
+highlighted only once. Input is applied immediately and never waits for motion. Notes,
+rejected/no-op input, loading, clearing and undo do not celebrate. A later real
+recompletion can. The final grid move yields to the existing win animation.
+Motion respects Android's Remove animations setting and is cancelled by new
+input, hiding/pausing the board, changing games and detachment. Native motion
+fixtures cover all seven house combinations, union pixels in both appearances,
+input modes, interruption and disabled motion in the isolated validation app.
+The entry-feedback fixture checks the disabled branch only when Android motion
+is already off; it never changes the device's animation setting. For an explicit
+real-touch recording with motion already enabled, run
+`DeviceTests#testRealTouchMotionRecording`. It injects normal pointer input in both
+entry modes and records timestamped real screen frames (without seeking the
+animator) for entry and three-house completion. Screenshots are captured at 450 px
+width; frame CSVs preserve their actual capture times.
 Instrumentation targets the separate `com.quietgrid.sudoku.validation` package
-by default, labeled **Sudoku validation**, never the player installation. Fixtures
+by default, labeled **Liddle Puzzles validation**, never the player installation. Fixtures
 replace only that validation installation's game, settings and puzzle library,
 including atomic-file recovery artifacts. A curation device test covers native
 classification, offered-difficulty best-time preservation, Medium preferences,
@@ -486,6 +605,18 @@ curated selection and restart/Resume consumption. Each test normally
 restores them in teardown, but a process crash can prevent that cleanup; keep a
 durable backup if you choose to retain anything in the validation installation.
 Do not interact with it while tests are running.
+
+Daily Word's JVM suite checks the exact immutable asset hashes, date mapping before
+and after the epoch, every cycle assignment, local midnight, leap day, DST gaps and
+repeated hours, time-zone agreement, all 1,024 binary-alphabet duplicate-score pairs,
+invalid guesses, wins/losses, six-guess cap, draft/record persistence, date revisits
+and corrupt-save rejection. `DailyWordDeviceTests` exercises real pointer taps,
+hub/mode isolation, validation, restart, non-color feedback/accessibility descriptions,
+light/dark rendering, landscape, enlarged-text scrolling, physical keyboard input,
+loss/win and injected-clock rollover. It never
+changes the system clock, time zone or animation settings. The daily save and its
+atomic recovery artifacts are restored in teardown; a durable outer backup of
+all validation `files` and `shared_prefs` is still required for crash recovery.
 The document-picker test creates actual JSON documents in Downloads, verifies
 their exported bytes, imports/re-imports them through Android's native picker,
 and checks atomic rejection of malformed, unsupported, nonunique and conflicting

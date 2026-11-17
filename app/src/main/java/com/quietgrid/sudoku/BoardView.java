@@ -26,27 +26,41 @@ public final class BoardView extends View {
     private android.animation.ValueAnimator entryAnimator;
     private int animatedCell = -1;
     private float entryProgress;
+    private int completedHouses;
+    private final boolean[] completedCells = new boolean[81];
     private final Runnable clearRejection = () -> { rejectedCell = -1; invalidate(); };
 
     int rejectedCell() { return rejectedCell; }
     int animatedCell() { return animatedCell; }
+    int animatedHouses() { return completedHouses; }
+    boolean animatesHouseCell(int cell) { return completedCells[cell]; }
 
     public void clearEntryFeedback() {
-        if (entryAnimator != null) { entryAnimator.cancel(); entryAnimator = null; }
+        if (entryAnimator != null) {
+            entryAnimator.removeAllListeners();
+            entryAnimator.cancel();
+            entryAnimator = null;
+        }
         animatedCell = -1;
+        completedHouses = 0;
+        java.util.Arrays.fill(completedCells, false);
+        removeCallbacks(clearRejection);
+        rejectedCell = -1;
         invalidate();
     }
 
-    private void acknowledgeEntry(int cell) {
+    private void acknowledgeEntry(int cell, int previousHouses) {
         clearEntryFeedback();
-        removeCallbacks(clearRejection);
-        rejectedCell = -1;
-        if (game.noteMode || !android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+        if (game.noteMode || game.won() || !android.animation.ValueAnimator.areAnimatorsEnabled()) return;
+        completedHouses = game.completedHouses(cell) & ~previousHouses;
+        for (int h = 0; h < Sudoku.HOUSES.length; h++) if ((completedHouses & (1 << h)) != 0) {
+            for (int member : Sudoku.HOUSES[h]) completedCells[member] = true;
+        }
         animatedCell = cell;
         entryProgress = 0f;
         entryAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f);
-        entryAnimator.setDuration(240);
-        entryAnimator.setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+        entryAnimator.setDuration(completedHouses == 0 ? 480 : 900);
+        entryAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
         entryAnimator.addUpdateListener(animation -> {
             entryProgress = (float) animation.getAnimatedValue();
             invalidate();
@@ -54,6 +68,9 @@ public final class BoardView extends View {
         entryAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {
                 animatedCell = -1;
+                completedHouses = 0;
+                java.util.Arrays.fill(completedCells, false);
+                entryAnimator = null;
                 invalidate();
             }
         });
@@ -79,10 +96,11 @@ public final class BoardView extends View {
         if (game == null) return;
         clearEntryFeedback();
         int target = game.selected;
+        int previousHouses = game.completedHouses(target);
         boolean conflict = conflictingEntry(target, digit);
         boolean entered = game.chooseDigit(digit);
         if (conflict) reject(target);
-        else if (entered) acknowledgeEntry(target);
+        else if (entered) acknowledgeEntry(target, previousHouses);
         if (entered && entryChanged != null) entryChanged.run();
         else if (selectionChanged != null) selectionChanged.run();
     }
@@ -92,6 +110,11 @@ public final class BoardView extends View {
         clearEntryFeedback();
         rejectedCell = -1;
         super.onDetachedFromWindow();
+    }
+
+    @Override protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility != VISIBLE) clearEntryFeedback();
     }
 
     public BoardView(Context context, MainActivity.Palette palette) {
@@ -118,6 +141,7 @@ public final class BoardView extends View {
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        if (animatedCell >= 0 && !android.animation.ValueAnimator.areAnimatorsEnabled()) clearEntryFeedback();
         float side = Math.max(0, Math.min(getWidth() - dp(4), getHeight() - dp(12)));
         left = (getWidth() - side) / 2f; top = (getHeight() - side) / 2f;
         cellSize = side / 9;
@@ -137,9 +161,26 @@ public final class BoardView extends View {
                     : selected >= 0 && Sudoku.PEERS[selected][i] ? palette.peer : palette.surface;
             paint.setColor(fill);
             canvas.drawRect(x, y, x + cellSize, y + cellSize, paint);
-            if (i == animatedCell) {
-                paint.setColor((palette.accent & 0x00FFFFFF) | Math.round(75 * (1f - entryProgress)) << 24);
+            if (completedCells[i]) {
+                int distance = Math.abs(i / 9 - animatedCell / 9) + Math.abs(i % 9 - animatedCell % 9);
+                float phase = Math.max(0f, (entryProgress - distance * .025f) / .6f);
+                float impulse = phase < .18f ? phase / .18f
+                        : phase < .4f ? 1f : Math.max(0f, (1f - phase) / .6f);
+                paint.setColor((palette.accent & 0x00FFFFFF) | Math.round(110 * impulse) << 24);
                 canvas.drawRect(x, y, x + cellSize, y + cellSize, paint);
+            } else if (i == animatedCell) {
+                paint.setColor((palette.accent & 0x00FFFFFF) | Math.round(100 * (1f - entryProgress)) << 24);
+                canvas.drawRect(x, y, x + cellSize, y + cellSize, paint);
+            }
+            if (i == animatedCell) {
+                float progress = Math.min(1f, entryProgress * (completedHouses == 0 ? 1f : 900f / 480f));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(dp(2.5f));
+                paint.setColor((palette.accent & 0x00FFFFFF) | Math.round(210 * (1f - progress)) << 24);
+                float inset = cellSize * (.2f - .15f * progress);
+                canvas.drawRoundRect(x + inset, y + inset, x + cellSize - inset, y + cellSize - inset,
+                        dp(6), dp(6), paint);
+                paint.setStyle(Paint.Style.FILL);
             }
             if (i == rejectedCell) {
                 float fraction = Math.min(1f, (android.os.SystemClock.uptimeMillis() - rejectionStarted) / 550f);
@@ -157,7 +198,13 @@ public final class BoardView extends View {
                 float baseline = y + cellSize / 2 - (paint.ascent() + paint.descent()) / 2;
                 canvas.save();
                 if (i == animatedCell) {
-                    float scale = 1f + .18f * (1f - entryProgress);
+                    float progress = Math.min(1f, entryProgress * (completedHouses == 0 ? 1f : 900f / 480f));
+                    float settle = Math.min(1f, progress / .24f);
+                    float release = Math.max(0f, (progress - .24f) / .76f);
+                    float scale = progress < .24f ? .65f + .7f * (1f - (1f - settle) * (1f - settle))
+                            : 1f + .35f * (1f - release) * (1f - release);
+                    canvas.clipRect(x + dp(2), y + dp(2), x + cellSize - dp(2), y + cellSize - dp(2));
+                    canvas.translate(0f, cellSize * .09f * (1f - settle) * (1f - settle));
                     canvas.scale(scale, scale, x + cellSize / 2, y + cellSize / 2);
                 }
                 canvas.drawText(Integer.toString(value), x + cellSize / 2, baseline, paint);
@@ -190,6 +237,24 @@ public final class BoardView extends View {
             paint.setStrokeWidth(dp(line % 3 == 0 ? 1.7f : 0.5f));
             canvas.drawLine(left + line * cellSize, top, left + line * cellSize, top + side, paint);
             canvas.drawLine(left, top + line * cellSize, left + side, top + line * cellSize, paint);
+        }
+        if (completedHouses != 0) {
+            float crest = Math.min(1f, entryProgress / .16f)
+                    * Math.min(1f, (1f - entryProgress) / .45f);
+            paint.setColor((palette.accent & 0x00FFFFFF) | Math.round(220 * crest) << 24);
+            paint.setStrokeWidth(dp(3));
+            float inset = dp(2);
+            for (int i = 0; i < 81; i++) if (completedCells[i]) {
+                float x = left + i % 9 * cellSize, y = top + i / 9 * cellSize;
+                if (i < 9 || !completedCells[i - 9])
+                    canvas.drawLine(x + inset, y + inset, x + cellSize - inset, y + inset, paint);
+                if (i >= 72 || !completedCells[i + 9])
+                    canvas.drawLine(x + inset, y + cellSize - inset, x + cellSize - inset, y + cellSize - inset, paint);
+                if (i % 9 == 0 || !completedCells[i - 1])
+                    canvas.drawLine(x + inset, y + inset, x + inset, y + cellSize - inset, paint);
+                if (i % 9 == 8 || !completedCells[i + 1])
+                    canvas.drawLine(x + cellSize - inset, y + inset, x + cellSize - inset, y + cellSize - inset, paint);
+            }
         }
         if (selected >= 0) {
             paint.setStyle(Paint.Style.STROKE); paint.setColor(palette.accent); paint.setStrokeWidth(dp(2.5f));
@@ -226,10 +291,11 @@ public final class BoardView extends View {
     private void select(int cell) {
         if (game == null) return;
         clearEntryFeedback();
+        int previousHouses = game.completedHouses(cell);
         boolean conflict = conflictingEntry(cell, game.armedDigit);
         boolean entered = game.selectCell(cell);
         if (conflict) reject(cell);
-        else if (entered) acknowledgeEntry(cell);
+        else if (entered) acknowledgeEntry(cell, previousHouses);
         requestFocus();
         if (entered && entryChanged != null) entryChanged.run();
         else if (selectionChanged != null) selectionChanged.run();
@@ -245,11 +311,13 @@ public final class BoardView extends View {
         else if (code == KeyEvent.KEYCODE_DPAD_UP) select(Math.max(0, cell - 9));
         else if (code == KeyEvent.KEYCODE_DPAD_DOWN) select(Math.min(80, cell + 9));
         else if (code >= KeyEvent.KEYCODE_1 && code <= KeyEvent.KEYCODE_9) {
+            clearEntryFeedback();
             int digit = code - KeyEvent.KEYCODE_0;
             int target = game.selected;
+            int previousHouses = game.completedHouses(target);
             if (conflictingEntry(game.selected, digit)) reject(game.selected);
             if (game.enter(digit)) {
-                acknowledgeEntry(target);
+                acknowledgeEntry(target, previousHouses);
                 if (entryChanged != null) entryChanged.run();
             }
         } else if (code == KeyEvent.KEYCODE_DEL || code == KeyEvent.KEYCODE_FORWARD_DEL) {

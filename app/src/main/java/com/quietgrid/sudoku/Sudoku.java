@@ -12,6 +12,7 @@ public final class Sudoku {
     public static final int ALL = 511;
     public static final int[][] HOUSES = new int[27][9];
     public static final boolean[][] PEERS = new boolean[81][81];
+    private static final int EASY_MIN_CLUES = 36, EASY_MAX_CLUES = 40, EASY_MIN_OPENINGS = 8;
 
     static {
         for (int r = 0; r < 9; r++) {
@@ -151,9 +152,43 @@ public final class Sudoku {
     public static Puzzle generate(Difficulty difficulty, Random random) {
         for (int attempt = 0; attempt < 180; attempt++) {
             Puzzle candidate = generateCandidate(random);
-            if (candidate.difficulty == difficulty) return candidate;
+            if (candidate.difficulty != difficulty) continue;
+            if (difficulty != Difficulty.FOCUSED) return candidate;
+            candidate = gentlerEasy(candidate, random);
+            int clues = (int) Arrays.stream(candidate.clues).filter(value -> value != 0).count();
+            if (candidate.difficulty == difficulty && clues >= EASY_MIN_CLUES && clues <= EASY_MAX_CLUES
+                    && hasEasyOpening(candidate.clues)) return candidate;
         }
         throw new IllegalStateException("Could not certify this difficulty. Please try generating again.");
+    }
+
+    private static Puzzle gentlerEasy(Puzzle puzzle, Random random) {
+        int[] clues = puzzle.clues.clone();
+        List<Integer> empty = new ArrayList<>();
+        for (int cell = 0; cell < 81; cell++) if (clues[cell] == 0) empty.add(cell);
+        int target = EASY_MIN_CLUES + random.nextInt(EASY_MAX_CLUES - EASY_MIN_CLUES + 1);
+        Collections.shuffle(empty, random);
+        int count = 81 - empty.size();
+        for (int cell : empty) {
+            if (count >= target) break;
+            // Restoring correct givens cannot introduce another solution.
+            clues[cell] = puzzle.solution[cell];
+            count++;
+        }
+        return measuredPuzzle(clues, puzzle.solution);
+    }
+
+    private static boolean hasEasyOpening(int[] clues) {
+        boolean[] seen = new boolean[81];
+        int count = 0;
+        for (int digit = 1; digit <= 9; digit++) for (int[] house : HOUSES) {
+            int cell = hiddenSingle(clues, house, digit);
+            if (cell >= 0 && !seen[cell]) {
+                seen[cell] = true;
+                if (++count >= EASY_MIN_OPENINGS) return true;
+            }
+        }
+        return false;
     }
 
     /** A common pool: one shuffled greedy removal pass, retaining uniqueness, with no tier filter. */
@@ -184,6 +219,17 @@ public final class Sudoku {
         return new Puzzle(clues, solution, combined.solved ? Difficulty.MEDIUM : Difficulty.HARD, combined);
     }
 
+    private static int hiddenSingle(int[] values, int[] house, int digit) {
+        int last = -1;
+        for (int cell : house) {
+            if (values[cell] == 0 && (candidates(values, cell) & bit(digit)) != 0) {
+                if (last >= 0) return -1;
+                last = cell;
+            }
+        }
+        return last;
+    }
+
     /** False: hidden singles only. True: hidden plus naked singles, from the original givens. */
     public static Rating rate(int[] clues, boolean includeNakedSingles) {
         if (!valid(clues)) throw new IllegalArgumentException("Invalid givens.");
@@ -196,13 +242,8 @@ public final class Sudoku {
             changed = false;
             pass++;
             for (int d = 1; d <= 9; d++) for (int h = 0; h < HOUSES.length; h++) {
-                int count = 0, last = -1;
-                for (int cell : HOUSES[h]) {
-                    if (v[cell] == 0 && (candidates(v, cell) & bit(d)) != 0) {
-                        count++; last = cell;
-                    }
-                }
-                if (count == 1) {
+                int last = hiddenSingle(v, HOUSES[h], d);
+                if (last >= 0) {
                     v[last] = d;
                     steps.add(new Step(last, d, h, pass));
                     hidden++; changed = true;

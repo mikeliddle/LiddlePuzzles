@@ -41,7 +41,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
 
     @Override protected void setUp() throws Exception {
         super.setUp();
-        assertEquals("Never run puzzle fixtures against the player", "com.quietgrid.sudoku.validation",
+        assertEquals("Never run puzzle fixtures against the player", "fyi.mllab.puzzle.validation",
                 getInstrumentation().getTargetContext().getPackageName());
         for (Mode mode : Mode.values()) for (String suffix : new String[]{"", ".bak", ".new"}) {
             File file = new File(save(mode).toString() + suffix);

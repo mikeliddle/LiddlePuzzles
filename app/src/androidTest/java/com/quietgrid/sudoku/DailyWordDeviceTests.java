@@ -42,7 +42,7 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
 
     @Override protected void setUp() throws Exception {
         super.setUp();
-        assertEquals("com.quietgrid.sudoku.validation", getInstrumentation().getTargetContext().getPackageName());
+        assertEquals("fyi.mllab.puzzle.validation", getInstrumentation().getTargetContext().getPackageName());
         originalSettings = settings().getAll();
         for (String name : new String[]{"daily-word-v1.bin", "daily-word-v1.bin.bak", "daily-word-v1.bin.new"}) {
             File file = file(name);

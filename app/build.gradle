@@ -44,7 +44,7 @@ android {
     useLibrary 'android.test.base'
 
     defaultConfig {
-        applicationId 'com.quietgrid.sudoku'
+        applicationId 'fyi.mllab.puzzle'
         minSdk 29
         targetSdk 36
         versionCode 3

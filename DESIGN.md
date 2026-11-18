@@ -394,6 +394,11 @@ generation guarantees, frozen schedules or data formats.
 
 ### Current per-mode review
 
+The permanent installed identity is `fyi.mllab.puzzle` (validation suffix
+`.validation`). Keep visible Liddle Puzzles branding and existing save formats;
+the different old `com.quietgrid.sudoku` app does not receive this as an update
+or transfer its private state automatically. Do not imply automatic migration.
+
 Navigation belongs to fixed screen chrome, never the centered menu body or the
 scaled gameplay composition: Back stays at the top left and Settings at the top
 right within system/cutout insets, with native 48dp targets. Settings and help

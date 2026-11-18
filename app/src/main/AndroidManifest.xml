@@ -9,19 +9,19 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
-            android:name=".PuzzleMenuActivity"
+            android:name="com.quietgrid.sudoku.PuzzleMenuActivity"
             android:exported="false"
             android:windowSoftInputMode="stateAlwaysHidden" />
         <activity
-            android:name=".PuzzleActivity"
+            android:name="com.quietgrid.sudoku.PuzzleActivity"
             android:exported="false"
             android:windowSoftInputMode="stateAlwaysHidden" />
         <activity
-            android:name=".DailyWordActivity"
+            android:name="com.quietgrid.sudoku.DailyWordActivity"
             android:exported="false"
             android:windowSoftInputMode="stateAlwaysHidden" />
         <activity
-            android:name=".MainActivity"
+            android:name="com.quietgrid.sudoku.MainActivity"
             android:exported="true"
             android:windowSoftInputMode="stateAlwaysHidden">
             <intent-filter>

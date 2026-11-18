@@ -14,7 +14,7 @@ licenses.
 ## Download
 
 The existing public **Sudoku-1.0.apk** is available from the
-[latest GitHub Release](https://github.com/mikeliddle/Sudoku/releases/latest).
+[latest GitHub Release](https://github.com/mikeliddle/LiddlePuzzles/releases/latest).
 It predates the Liddle Puzzles hub and Daily Word additions in this source checkout.
 It is a signed sideload build for Android 10 and newer; no app store or account
 is needed. Open the downloaded APK to install, allowing installation from that
@@ -35,12 +35,15 @@ monochrome silhouette.
 
 The scrollable **Liddle Puzzles** hub offers **Sudoku**, **Daily Word**, **Takuzu**,
 **Nonograms**, **Futoshiki**, **Minesweeper**, **Numberlink**, and **Slitherlink**.
-Settings applies appearance and accent choices to every mode. The application ID remains
-`com.quietgrid.sudoku`: compatible updates retain existing Sudoku games, notes,
-preferences, best times, and puzzle records without changing their save format.
-Each mode has independent progress.
-The Liddle Puzzles rename changes display branding only; legacy internal names,
-the local signing-directory path and the frozen Daily Word schedule stay unchanged.
+Settings applies appearance and accent choices to every mode. New builds use the
+permanent application ID **`fyi.mllab.puzzle`**. This is a separate Android app,
+not an update to the older `com.quietgrid.sudoku` installation. Old private games,
+notes, preferences, best times and records do **not** transfer automatically.
+Keep the old app if its progress is needed; no private-data migration is included.
+Each mode has independent progress within the new app. Save formats and the
+production signing certificate are unchanged. The Java namespace/source package
+remains `com.quietgrid.sudoku`; manifest components are fully qualified.
+The local signing-directory path and frozen Daily Word schedule stay unchanged.
 
 ### Six more generated puzzles
 
@@ -794,7 +797,7 @@ statement. A download host's privacy policy applies separately to APK downloads.
 ```powershell
 $adb = "$env:ANDROID_HOME\platform-tools\adb.exe"
 & $adb -d install -r .\app\build\outputs\apk\debug\app-debug.apk
-& $adb -d shell am start -W -n com.quietgrid.sudoku/.MainActivity
+& $adb -d shell am start -W -n fyi.mllab.puzzle/com.quietgrid.sudoku.MainActivity
 ```
 
 ## Verification
@@ -832,7 +835,7 @@ real-touch recording with motion already enabled, run
 entry modes and records timestamped real screen frames (without seeking the
 animator) for entry and three-house completion. Screenshots are captured at 450 px
 width; frame CSVs preserve their actual capture times.
-Instrumentation targets the separate `com.quietgrid.sudoku.validation` package
+Instrumentation targets the separate `fyi.mllab.puzzle.validation` package
 by default, labeled **Liddle Puzzles validation**, never the player installation. Fixtures
 replace only that validation installation's game, settings and puzzle library,
 including atomic-file recovery artifacts. A curation device test covers native
@@ -915,7 +918,7 @@ $methods = [regex]::Matches((Get-Content .\app\src\androidTest\java\com\quietgri
     ForEach-Object { $_.Groups[1].Value } |
     Where-Object { $_ -ne 'testSystemThemeChangesPreserveGame' }
 $tests = ($methods | ForEach-Object { "com.quietgrid.sudoku.DeviceTests#$_" }) -join ','
-$result = & $adb -s <authorized-serial> shell am instrument -w -r -e class $tests com.quietgrid.sudoku.validation.test/android.test.InstrumentationTestRunner
+$result = & $adb -s <authorized-serial> shell am instrument -w -r -e class $tests fyi.mllab.puzzle.validation.test/android.test.InstrumentationTestRunner
 $result
 if (($result -join "`n") -notmatch "OK \($($methods.Count) tests?\)") {
     throw 'Native instrumentation did not explicitly pass every requested test.'

@@ -32,7 +32,7 @@ It does not check out source, run Gradle/project scripts, or use caches.
 Android build-tools 36.0.0 are downloaded from Google's HTTPS repository and
 SHA-256 verified before secrets are provided. The temporary keystore is
 access-restricted and removed in `finally` and an unconditional cleanup step.
-The APK must have the expected application ID/version, no permissions or
+The APK must have application ID `fyi.mllab.puzzle`, the expected version, no permissions or
 debuggable flag, valid alignment and the existing public-release certificate.
 Neither keys nor passwords are uploaded as artifacts.
 

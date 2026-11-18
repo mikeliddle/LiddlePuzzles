@@ -2,6 +2,10 @@
 
 Effective date: November 17, 2026.
 
+The current Android application ID is `fyi.mllab.puzzle`. It has storage separate
+from the older `com.quietgrid.sudoku` app; old private saves and settings are not
+automatically transferred or read for migration.
+
 Liddle Puzzles is an offline app. It does not collect or transmit personal data,
 usage data, device identifiers, or crash reports to the developer or any
 third party. It has no accounts, advertising, analytics, network permission,

@@ -37,7 +37,7 @@ public final class DeviceTests extends InstrumentationTestCase {
     @Override protected void setUp() throws Exception {
         super.setUp();
         assertEquals("Device fixtures must never target the player installation",
-                "com.quietgrid.sudoku.validation", getInstrumentation().getTargetContext().getPackageName());
+                "fyi.mllab.puzzle.validation", getInstrumentation().getTargetContext().getPackageName());
         File file = saveFile();
         originalSave = file.exists() ? Files.readAllBytes(file.toPath()) : null;
         originalSettings = settings().getAll();

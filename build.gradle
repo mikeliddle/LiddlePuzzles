@@ -9,17 +9,27 @@ tasks.register('compileEngineTests', JavaCompile) {
         'app/src/main/java/com/quietgrid/sudoku/PuzzleLibrary.java',
         'app/src/main/java/com/quietgrid/sudoku/PuzzleJson.java',
         'app/src/main/java/com/quietgrid/sudoku/DailyWord.java',
+        'app/src/main/java/com/quietgrid/sudoku/ActivePlayTimer.java',
         'app/src/test/java/com/quietgrid/sudoku/EngineTests.java',
         'app/src/test/java/com/quietgrid/sudoku/CurationTests.java',
         'app/src/test/java/com/quietgrid/sudoku/DifficultyTests.java',
         'app/src/test/java/com/quietgrid/sudoku/DailyWordTests.java',
+        'app/src/test/java/com/quietgrid/sudoku/PuzzleTests.java',
         'app/src/test/java/com/quietgrid/sudoku/ClassificationBatch.java',
         'app/src/test/java/com/quietgrid/sudoku/EasyGenerationBatch.java'
     )
+    source fileTree('app/src/main/java/com/quietgrid/sudoku/puzzles') { include '*.java' }
     classpath = files()
     destinationDirectory = layout.buildDirectory.dir('engine-tests')
     sourceCompatibility = '17'
     targetCompatibility = '17'
+}
+
+tasks.register('puzzleTest', JavaExec) {
+    dependsOn 'compileEngineTests'
+    classpath = files(layout.buildDirectory.dir('engine-tests'))
+    mainClass = 'com.quietgrid.sudoku.PuzzleTests'
+    args layout.projectDirectory.dir('dist/six-puzzles-20261117').asFile.absolutePath
 }
 
 tasks.register('engineTest', JavaExec) {

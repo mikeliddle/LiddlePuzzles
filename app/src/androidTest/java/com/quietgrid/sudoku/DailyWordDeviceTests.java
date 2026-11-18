@@ -144,6 +144,69 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         assertTrue(Arrays.equals(dayBytes, bytesOrNull(file("daily-word-v1.bin"))));
     }
 
+    public void testActiveTimerRolloverAndCompletionMotion() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z");
+        TextView elapsed = activity.findViewById(android.R.id.content).findViewWithTag("elapsed-time");
+        assertNotNull(elapsed);
+        assertEquals(View.ACCESSIBILITY_LIVE_REGION_NONE, elapsed.getAccessibilityLiveRegion());
+        View board = activity.findViewById(android.R.id.content).findViewWithTag("word-board");
+        tap("Enter");
+        assertNull("Rejected guess does not celebrate", effect());
+        SystemClock.sleep(1200); getInstrumentation().waitForIdleSync();
+        assertSame("Clock does not replace the board", board, activity.findViewById(android.R.id.content).findViewWithTag("word-board"));
+        awaitElapsed(DailyWord.EPOCH, 1000);
+        tap("Large controls");
+        long paused = restored().day(DailyWord.EPOCH).elapsedMillis();
+        SystemClock.sleep(1200);
+        assertEquals("Modal pause excludes idle reading", paused, restored().day(DailyWord.EPOCH).elapsedMillis());
+        accessibilityClick("Close"); getInstrumentation().waitForIdleSync();
+        for (int i = 0; i < 40 && !activity.hasWindowFocus(); i++) SystemClock.sleep(50);
+        type("BLE");
+        close();
+        long saved = restored().day(DailyWord.EPOCH).elapsedMillis();
+        SystemClock.sleep(1100); launchWord(); fixed("2026-11-16T12:00:00Z");
+        assertTrue("Restart keeps accumulated active time", restored().day(DailyWord.EPOCH).elapsedMillis() >= saved
+                && restored().day(DailyWord.EPOCH).elapsedMillis() < saved + 2000);
+        assertEquals("Timer save preserves the draft", "ble", restored().day(DailyWord.EPOCH).draft());
+        type("SS"); tap("Enter");
+        assertTrue(restored().won(restored().day(DailyWord.EPOCH)));
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) assertNotNull(effect());
+        capture("daily-word-timer-win-motion.png");
+        long won = restored().day(DailyWord.EPOCH).elapsedMillis();
+        SystemClock.sleep(1800);
+        assertEquals(won, restored().day(DailyWord.EPOCH).elapsedMillis());
+        assertNull(effect());
+        getInstrumentation().runOnMainSync(() -> ((DailyWordActivity) activity).refresh(null));
+        assertNull("Terminal refresh is still", effect());
+        rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        fixed("2026-11-16T12:00:00Z");
+        assertNull("Terminal recreation is still", effect());
+        assertEquals(won, restored().day(DailyWord.EPOCH).elapsedMillis());
+        fixed("2026-11-17T12:00:00Z");
+        assertTrue("New date is a separate clock", restored().day(DailyWord.EPOCH.plusDays(1)).elapsedMillis() < 1500);
+        type("A"); awaitElapsed(DailyWord.EPOCH.plusDays(1), 1000);
+        long tomorrow = restored().day(DailyWord.EPOCH.plusDays(1)).elapsedMillis();
+        assertTrue(tomorrow >= 1000);
+        fixed("2026-11-16T12:00:00Z");
+        assertEquals("Completed-date revisit never restarts its clock", won, restored().day(DailyWord.EPOCH).elapsedMillis());
+        assertNull(effect());
+        getInstrumentation().runOnMainSync(() -> {
+            try {
+                java.lang.reflect.Field field = DailyWordActivity.class.getDeclaredField("completion");
+                field.setAccessible(true); ((CompletionFeedback) field.get(activity)).celebrate(false);
+            } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
+        });
+        assertNull(effect());
+        capture("daily-word-timer-frozen-landscape.png");
+    }
+
+    private View effect() { return activity.findViewById(android.R.id.content).findViewWithTag("completion-effect"); }
+
+    private void awaitElapsed(java.time.LocalDate date, long minimum) throws Exception {
+        for (int i = 0; i < 30 && restored().day(date).elapsedMillis() < minimum; i++) SystemClock.sleep(100);
+        assertTrue("Elapsed checkpoints reach the requested active interval", restored().day(date).elapsedMillis() >= minimum);
+    }
+
     public void testDarkLandscapeRolloverAndLoss() throws Throwable {
         assertTrue(settings().edit().putInt("appearance", 2).putInt("accentColor", 1).commit());
         launchWord();
@@ -161,6 +224,10 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
             tap("Enter");
         }
         assertNotNull("Loss still reveals the answer", find("The word was BLESS."));
+        long lostElapsed = restored().day(DailyWord.EPOCH).elapsedMillis();
+        SystemClock.sleep(1100);
+        assertEquals("Word loss freezes elapsed too", lostElapsed, restored().day(DailyWord.EPOCH).elapsedMillis());
+        assertNull("Word loss never celebrates", effect());
         assertKeyboardLayout();
         assertCleanChrome();
         capture("daily-word-dark-loss.png");
@@ -182,6 +249,8 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         getInstrumentation().sendStringSync("sense");
         getInstrumentation().waitForIdleSync();
         assertEquals("Hardware keyboard persists every letter", "sense", restored().day(DailyWord.EPOCH.plusDays(1)).draft());
+        assertNotNull(activity.getCurrentFocus());
+        assertFalse("Typing scopes Enter to the guess, not an earlier navigation focus", activity.getCurrentFocus().isClickable());
         getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER);
         getInstrumentation().waitForIdleSync();
         DailyWord finished = restored();
@@ -210,13 +279,8 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
                 word.refresh(null);
             });
             getInstrumentation().waitForIdleSync();
-            ScrollView overflow = scroll(activity.getWindow().getDecorView());
-            assertNotNull("Large text gets a scrollable page, not clipped controls", overflow);
-            runTestOnUiThread(() -> overflow.scrollTo(0, overflow.getChildAt(0).getHeight()));
-            getInstrumentation().waitForIdleSync();
-            assertInside(find("Enter"));
-            assertInside(find("Q"));
-            assertKeyboardLayout();
+            assertNull("Normal play fits rather than scrolling", scroll(activity.getWindow().getDecorView()));
+            ViewportChecks.all(activity);
             assertCleanChrome();
             type("BLESS");
             tap("Enter");
@@ -225,6 +289,94 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         } finally {
             runTestOnUiThread(() -> activity.getResources().updateConfiguration(original, activity.getResources().getDisplayMetrics()));
         }
+    }
+
+    public void testAccessibleFocusLargeInputAndSingleFeedback() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z");
+        focusEnter(find("Q")); assertEquals("q", restored().day(DailyWord.EPOCH).draft());
+        focusEnter(find("Delete")); assertEquals("", restored().day(DailyWord.EPOCH).draft());
+        Configuration original = new Configuration(activity.getResources().getConfiguration());
+        try {
+            runTestOnUiThread(() -> {
+                Configuration large = new Configuration(original); large.fontScale = 1.6f;
+                activity.getResources().updateConfiguration(large, activity.getResources().getDisplayMetrics());
+                ((DailyWordActivity) activity).build(); ((DailyWordActivity) activity).refresh(null);
+            });
+            getInstrumentation().waitForIdleSync(); SystemClock.sleep(300);
+            tap("Large controls");
+            java.lang.reflect.Field field = DailyWordActivity.class.getDeclaredField("largeControls"); field.setAccessible(true);
+            LargeControlsDialog dialog = (LargeControlsDialog) field.get(activity);
+            getInstrumentation().waitForIdleSync(); SystemClock.sleep(300);
+            for (int i = 0; i < dialog.content.getChildCount(); i++) {
+                View child = dialog.content.getChildAt(i);
+                if (child.isClickable()) {
+                    float density = child.getResources().getDisplayMetrics().density;
+                    assertTrue("Alternative target width", child.getWidth() / density >= 48);
+                    assertTrue("Alternative target height", child.getHeight() / density >= 48);
+                }
+                if (child instanceof TextView) assertTrue("Large text scales, not fitted away",
+                        ((TextView) child).getTextSize() / child.getResources().getDisplayMetrics().density >= 31);
+            }
+            View add = find("Add letter", dialog.content); assertNotNull(add);
+            focusEnter(add); assertEquals("a", restored().day(DailyWord.EPOCH).draft());
+            View delete = find("Delete", dialog.content);
+            runTestOnUiThread(() -> delete.requestRectangleOnScreen(new Rect(0, 0, delete.getWidth(), delete.getHeight()), true));
+            getInstrumentation().waitForIdleSync();
+            accessibilityClick("Delete"); assertEquals("", restored().day(DailyWord.EPOCH).draft());
+            capture("puzzles-a11y-word-large.png");
+            runTestOnUiThread(dialog.window::dismiss);
+        } finally {
+            runTestOnUiThread(() -> {
+                activity.getResources().updateConfiguration(original, activity.getResources().getDisplayMetrics());
+                ((DailyWordActivity) activity).build(); ((DailyWordActivity) activity).refresh(null);
+            });
+        }
+        getInstrumentation().waitForIdleSync(); SystemClock.sleep(350);
+        java.util.List<String> spoken = new java.util.concurrent.CopyOnWriteArrayList<>();
+        getInstrumentation().getUiAutomation().setOnAccessibilityEventListener(event -> {
+            if (event.getEventType() == android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT)
+                spoken.add(event.getText().toString());
+        });
+        try {
+            type("APPLE"); tap("Enter"); SystemClock.sleep(300);
+            assertEquals("One explicit accepted-row announcement", 1, spoken.size());
+            assertTrue(spoken.get(0).contains("Guess 1")); assertFalse(spoken.get(0).contains("BLESS"));
+            type("BLESS"); tap("Enter"); SystemClock.sleep(300);
+            assertEquals("One explicit win announcement", 2, spoken.size());
+            assertTrue(spoken.get(1).contains("Puzzle complete"));
+            focusEnter(find("Back to Liddle Puzzles"));
+            assertTrue("Enter activates focused Back after completion", activity.isFinishing() || activity.isDestroyed());
+            activity = null;
+            File state = file("daily-word-v1.bin"); assertTrue(state.delete());
+            launchWord(); fixed("2026-11-16T12:00:00Z"); spoken.clear();
+            for (String guess : new String[]{"APPLE", "CRANE", "MOUTH", "FIGHT", "ROUND", "STOCK"}) {
+                type(guess); tap("Enter"); SystemClock.sleep(200);
+            }
+            assertEquals("One announcement per accepted attempt", 6, spoken.size());
+            for (int i = 0; i < 5; i++) assertFalse("No early answer", spoken.get(i).contains("The word was"));
+            assertTrue(spoken.get(5).contains("No guesses remaining. The word was BLESS"));
+        } finally { getInstrumentation().getUiAutomation().setOnAccessibilityEventListener(null); }
+    }
+
+    private void focusEnter(View view) throws Throwable {
+        assertNotNull(view);
+        runTestOnUiThread(() -> { view.setFocusableInTouchMode(true); assertTrue(view.requestFocus()); });
+        getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER);
+        getInstrumentation().waitForIdleSync();
+    }
+
+    private void accessibilityClick(String label) {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+            if (root != null) for (android.view.accessibility.AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(label))
+                if ((node.getText() != null && label.contentEquals(node.getText())
+                        || node.getContentDescription() != null && label.contentEquals(node.getContentDescription())) && node.isClickable()) {
+                    assertTrue("Native accessibility click", node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK));
+                    getInstrumentation().waitForIdleSync(); return;
+                }
+            SystemClock.sleep(100);
+        }
+        fail("No active accessible action: " + label);
     }
 
     private ScrollView scroll(View view) {
@@ -257,12 +409,38 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         TextView feedback = findFeedback(root);
         assertNotNull(feedback);
         if (feedback.getText().length() == 0) {
-            assertEquals("Empty feedback must not reserve space", View.GONE, feedback.getVisibility());
+            assertEquals("Empty feedback shares the timer slot without shifting play", View.INVISIBLE, feedback.getVisibility());
+        }
+    }
+
+    public void testFullWordViewportAndStableFeedback() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z");
+        for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+            rotate(orientation); fixed("2026-11-16T12:00:00Z");
+            Configuration prior = new Configuration(activity.getResources().getConfiguration());
+            try {
+                for (float scale : new float[]{1f, 2f}) {
+                    runTestOnUiThread(() -> {
+                        Configuration changed = new Configuration(prior); changed.fontScale = scale;
+                        activity.getResources().updateConfiguration(changed, activity.getResources().getDisplayMetrics());
+                        ((DailyWordActivity) activity).build(); ((DailyWordActivity) activity).refresh(null);
+                    });
+                    getInstrumentation().waitForIdleSync(); SystemClock.sleep(250);
+                    ViewportChecks.all(activity);
+                    View board = activity.findViewById(android.R.id.content).findViewWithTag("word-board");
+                    android.graphics.RectF before = ViewportChecks.bounds(board);
+                    tap("Enter");
+                    assertEquals("Validation never pushes the board", before, ViewportChecks.bounds(board));
+                    ViewportChecks.all(activity);
+                    capture("daily-word-fit-" + orientation + "-" + (int) scale + ".png");
+                }
+            } finally { runTestOnUiThread(() ->
+                    activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics())); }
         }
     }
 
     private TextView findFeedback(View view) {
-        if (view instanceof TextView && view.getAccessibilityLiveRegion() == View.ACCESSIBILITY_LIVE_REGION_POLITE)
+        if (view instanceof TextView && "word-feedback".equals(view.getTag()))
             return (TextView) view;
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
             TextView found = findFeedback(((ViewGroup) view).getChildAt(i));
@@ -272,6 +450,15 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
     }
 
     private void assertKeyboardLayout() throws Exception {
+        View root = activity.findViewById(android.R.id.content);
+        View board = root.findViewWithTag("word-board"), controls = root.findViewWithTag("word-controls");
+        assertNotNull(board); assertNotNull(controls);
+        int[] a = new int[2], b = new int[2]; board.getLocationOnScreen(a); controls.getLocationOnScreen(b);
+        float density = board.getResources().getDisplayMetrics().density;
+        float below = (b[1] - a[1] - board.getHeight()) / density;
+        float beside = (b[0] - a[0] - board.getWidth()) / density;
+        assertTrue("Keyboard and grid stay together without a bottom spacer",
+                below >= 0 && below <= 16 || beside >= 0 && beside <= 16);
         Button reference = (Button) find("Q");
         assertNotNull(reference);
         StringBuilder geometry = new StringBuilder("key,x,y,width,height,textPixels\n");

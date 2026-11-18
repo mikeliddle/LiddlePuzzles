@@ -9,6 +9,14 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
+            android:name=".PuzzleMenuActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+        <activity
+            android:name=".PuzzleActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+        <activity
             android:name=".DailyWordActivity"
             android:exported="false"
             android:windowSoftInputMode="stateAlwaysHidden" />

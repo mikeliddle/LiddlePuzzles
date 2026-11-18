@@ -1,8 +1,11 @@
-# Liddle Puzzles — Sudoku and Daily Word for Android
+# Liddle Puzzles for Android
 
 A standalone, offline native Android puzzle app. Open this project in Android Studio.
 There is no in-app account, advertising, analytics, or network permission.
 Optional offline curated collections supplement an unlimited generated supply.
+
+The shared [UX design principles and per-game review](DESIGN.md) document
+navigation/icons, grid-adjacent controls, input, errors, motion and accessibility.
 
 **AI disclosure:** This app, including its code and artwork, was generated with AI
 under human direction. Third-party components retain their own attribution and
@@ -30,13 +33,229 @@ Native vectors keep the mark crisp at launcher sizes. Adaptive and round icons
 share the same safely inset artwork; Android 13+ themed icons use its transparent
 monochrome silhouette.
 
-The app opens on **Liddle Puzzles**, with **Sudoku** and **Daily Word**. Settings applies
-appearance and accent choices to both modes. The application ID remains
+The scrollable **Liddle Puzzles** hub offers **Sudoku**, **Daily Word**, **Takuzu**,
+**Nonograms**, **Futoshiki**, **Minesweeper**, **Numberlink**, and **Slitherlink**.
+Settings applies appearance and accent choices to every mode. The application ID remains
 `com.quietgrid.sudoku`: compatible updates retain existing Sudoku games, notes,
 preferences, best times, and puzzle records without changing their save format.
 Each mode has independent progress.
 The Liddle Puzzles rename changes display branding only; legacy internal names,
 the local signing-directory path and the frozen Daily Word schedule stay unchanged.
+
+### Six more generated puzzles
+
+Each additional game has a compact **? / How to play** button with its exact rules
+and controls. Help is optional, never an automatic tutorial. **New puzzle** asks
+before replacing unfinished progress. Returning from the hub resumes each game's
+own board, including finished results. Each shows an active-play timer and a
+short completion cascade on a genuine win. No difficulty tiers, daily schedules,
+sounds, accounts, or network features are added to these games.
+
+| Game | Board and controls | Completion |
+| --- | --- | --- |
+| Takuzu | 6x6 or 8x8; new puzzles default to 8x8. Tap 0 / hold 1; repeat the same default value to clear, or select 0/1/Erase for repeated entry. Underlined clues are fixed. | Equal numbers of 0 and 1 per row/column, no three consecutive equal digits, no repeated completed rows or columns. |
+| Nonograms | 5x5, 8x8 or 10x10. Row/column run clues; tap to cycle filled / crossed empty / undecided. | The filled squares match all runs exactly; empty-square crosses are optional notes. |
+| Futoshiki | 4x4. Select a square, then 1–4 or the Erase icon. | Each row/column contains 1–4 once and follows every inequality. The pointed end faces the smaller digit. |
+| Minesweeper | 8x8, ten or fourteen mines. Tap reveals; hold toggles a flag. Explicit Flag tool retained. Covered/revealed cells have different persistent fills. | Reveal all safe squares to win. A revealed mine loses. Flags are optional and limited to the mine count. |
+| Numberlink | New puzzles: 6x6 with five pairs and required bends/detours. Legacy 4x4 games still Resume with history intact. Drag from an endpoint/existing path; backtrack to retract. Tap two neighboring squares remains an alternative. | Disjoint orthogonal paths join matching pairs and cover every square, with no branches or extra loops. |
+| Slitherlink | 4x4/6x6/8x8 cells. Tap edges to cycle line / cross / undecided, or open native accessible Edge controls. | Exactly one closed loop, no branches or loose ends, matching every numbered cell's adjacent-edge count. |
+
+All eight normal-play screens fit the full board, clues and essential controls
+together without scrolling/panning. Landscape reflows them side by side;
+measured proportional fitting handles constrained viewports/enlarged text.
+The user explicitly chose fitting everything even when targets and effective
+text must become smaller: this is not a universal 48dp/accessibility guarantee.
+Optional large controls and native node/key alternatives remain.
+Complete grids/clues are centered within their board region.
+Numberlink uses native focusable square
+buttons with spoken connections; Slitherlink supplies a native edge selector with
+current state and a cycle button in addition to its direct-touch diagram.
+Its **Cell clues** list exposes all sixteen coordinates, including blank cells
+and their current drawn-side counts. Nonogram filled cells have a check mark
+and an ink/surface contrast pair, not color alone. Futoshiki exposes the selected
+entry target and sizes inequality gutters from scaled text metrics.
+Input and action controls sit directly below or beside their grid instead of
+being pushed to the screen bottom. Selection, errors, Undo, timer digits and
+completion do not insert rows or shift this group; meaningful feedback shares
+existing fixed heading/timer slots. Optional clue/edge panels open separately.
+Familiar
+Back, Help and Undo actions use labeled native vectors.
+
+Each generated mode now uses Sudoku's submenu pattern: Back, named heading and
+shared Settings, Resume (or View completed board), and new-puzzle choices.
+Gameplay Back/New returns there; replacing active progress requires confirmation.
+Takuzu offers 6x6/8x8, Nonograms 5x5/8x8/10x10, Numberlink only 6x6 with five pairs for new games, and Minesweeper ten/fourteen
+mines on 8x8. These are real size/pair-count/density settings, not invented human
+difficulty ratings. Slitherlink offers 4x4/6x6/8x8 size choices; Futoshiki retains
+its certified 4x4 configuration. Daily Word remains direct to its one daily game. Choices persist
+for future games without changing an active board. Settings closes back to the
+invoking menu. Menu time never counts as active play.
+
+The hub gives every game the same tonal button geometry with its full name and
+a puzzle-specific vector icon. Eight stable light/dark color identities
+distinguish the games independently of the chosen app accent; Sudoku is no
+longer a special filled primary button. There are no button subtitles.
+
+Larger Slitherlink definitions carry an explicit dimension prefix while legacy
+4x4 bytes remain unchanged. Their 500-step histories store edge marks as bytes
+inside a new checked history envelope, retaining the existing 262144-byte cap.
+All sizes retain exact uniqueness proofs and the same cancellable generation
+budget. Independent planar-region row enumeration verifies larger samples
+without reusing the production edge solver.
+
+Nonogram sizes have ongoing local procedural generation, exact uniqueness checks
+and no finite pack to exhaust. Forty sampled seeds per size had forty distinct
+unique clue sets, independently verified. Clue bands measure all their run text
+before the whole board is fitted; no clues are omitted to make larger grids fit.
+Larger sizes necessarily trade away physical target/text size on small displays.
+Legacy 5x5 save bytes remain unchanged; an explicit size prefix distinguishes
+larger definitions, including timed saves and Undo history.
+
+Existing Takuzu 6x6 saves open unchanged and resume as
+6x6. Zeros use cyan and ones amber with contrasting light/dark fills and actual
+digits; fixed givens are underlined. All cells participating in a triple,
+overfull digit count, or duplicate completed row/column receive an exclamation
+mark, outline and accessible reason. Correcting a move clears stale errors.
+Only a completely valid board shows the prominent completion banner. Sizes are
+not difficulty ratings; there is no daily schedule or sharing feature.
+
+Takuzu's **0 / 1 / Erase icon / Undo icon** bank sits immediately below its grid.
+With no tool selected, tap enters 0 and hold enters 1; repeating the same
+default value clears the square. An armed digit writes repeatedly; switching it never changes the
+last square. Tap the armed tool again or outside the board/bank to return to
+default tap/hold input. Holding still enters/clears 1 with a tool selected.
+Erase selects a repeated local eraser without cycling through digits.
+The armed tool has a strong outline and native selected state; digits also have a check mark. No stale cell-first
+entry target remains. Sudoku retains its own digit-first/cell-first behavior.
+When a Sudoku digit is selected, holding a square toggles that digit's note
+without changing the explicit Notes mode or also placing a number on release.
+Blocked candidates remain suppressed; normal provenance and Undo apply.
+Binary input follows the default tap / secondary hold policy in `DESIGN.md`;
+named long-click accessibility actions and existing explicit tools remain.
+Pending holds cancel on interruption, and add no sound or vibration.
+
+The focused hold/route follow-up is recorded in
+`dist/centered-menus-20261117/controls-binary2/preservation.json`: all eight
+selected native cases passed, including actual short/held/canceled input,
+Mines multitouch, exact note/flag persistence, legacy and larger Numberlink
+drag/Undo, portrait/landscape with in-process 2x text, menus and stationary red
+loss. Validation private files were restored byte-for-byte; regular player
+APK/data and global settings were unchanged. Forty independently solved 6x6
+seeds were distinct even after symmetry/relabeling normalization, with generation
+11.1ms mean / 72.0ms maximum in the final host sample; three native samples took
+103/17/41ms. These are observations, not latency or human-difficulty guarantees.
+Takuzu, Nonograms, Futoshiki, Numberlink and Slitherlink each have **Undo** for
+their last 500 real edits, saved atomically with the board and retained across
+restarts. An edge edit is one whole step; selection, rejected and same-value
+actions add no history. Undo can reopen a completed puzzle. Existing saves
+start with empty history without resetting their board or changing its size.
+Minesweeper retains its reveal/flag rules without Undo; Daily Word does not
+permit undoing submitted guesses. Sudoku's existing Undo is unchanged.
+
+Nonogram row/column clues turn red with a dashed outline only when no
+legal placement of their runs can fit the current filled and explicitly
+crossed-empty squares. Undecided squares remain unconstrained: incomplete
+lines are not automatically errors, and this check never compares against a
+hidden picture. A legal entry differing from the solution is a mistake, not a
+red error. There is no visible error message, count, exclamation mark or reason
+list. Focusable clue descriptions identify the row/column and explain
+the contradiction without declaring any particular square wrong. Correction
+and Undo immediately refresh these signals. Actual save/load failures still
+show their necessary messages.
+
+Futoshiki marks all involved repeated row/column digits and entered pairs that
+break a visible inequality with an outline, **!** and coordinate/rule descriptions.
+Blank squares alone are not errors. Slitherlink marks branches, clue over-counts
+and closed loops incompatible with remaining clues or drawn lines. Its native
+red lines/digits and subtle outline rings replace visible error text and ! marks.
+Cell clues and Edge controls retain localized reasons in accessible descriptions.
+Neither check consults a hidden solution; correction and Undo refresh the feedback. All six new games
+use a prominent completion/result banner, with no repeated celebration on redraw.
+Routine idle instructions live in optional help rather than occupying play space.
+Obvious action explanations and slogans are omitted app-wide; functional labels,
+necessary failure messages and destructive-progress confirmations remain.
+Ordinary headings/labels are centered. Familiar actions are icon-first, buttons
+have at most one visible action word, without subtitles or relocated descriptive
+captions. Hub game-title labels retain their full established names, including
+Daily Word, alongside icons. Settings use self-contained choices such as `6x6` or `10 mines`;
+saved details and toggle explanations remain accessible without visible footers.
+Full accessible names/tooltips are retained. Notes/Flag toggles communicate
+state with selected fill, outline and native selected/checked state rather than
+On/Off text; clue alignment and QWERTY geometry keep their spatial meaning.
+
+Minesweeper loss stays in place: red mine cells and a board outline, a distinct
+detonated-mine *! and accessible description, and concise red Mine hit feedback.
+Board/cell/controls bounds do not change on flag/reveal/win/loss. Short reveal
+fades/flood stagger, flag pulses and a mine-hit cascade affect paint opacity only;
+saving, loss lockout and timer freeze are immediate. Effects stop on interruption
+and respect disabled motion without replaying on resumed losses. No sound or
+vibration is added.
+
+Numberlink previews a drag without saving intermediate squares. Release commits
+one logical Undo action; cancellation, multitouch and lifecycle interruption
+discard it. An existing-path start keeps its endpoint prefix and replaces the
+downstream tail on extension. Fast motion interpolates orthogonal cells but
+never teleports diagonally or overwrites other pairs. Pair colors are stable
+across redraw/resume and have distinct light/dark variants; digits and spoken
+connections remain, so color is not the only signal. There is no idle
+"choose a neighboring square" prompt.
+
+The 6x6 Numberlink setting is the only new-game choice; old smaller preferences
+select it without altering any saved board. Its 36 cells and five routes require at least four cells per route, no
+adjacent matching endpoints, twelve total bends and ten aggregate route steps
+beyond shortest endpoint distances. These are checked against the one exact
+solution, not a human technique rating or renamed tiny board. Larger puzzles
+use randomized backbite mixing of full-cover paths followed by a bounded exact
+uniqueness search with degree/reachability pruning. Legacy 4x4 payload bytes
+remain unchanged; 6x6 uses an explicit dimension prefix and retains timed
+500-step Undo. The full larger board still fits without scrolling.
+
+Navigation stays in the screen corners outside fitted play content: Back at the
+top left, Settings at the top right. Settings contains global appearance/colors
+and an entry for each game. Sudoku's Auto notes and Mistakes live together;
+other games reuse their existing new-puzzle configuration without replacing
+current saves. Fixed configurations do not acquire invented options. Puzzle
+collection Export/Import are the last controls in the settings list.
+
+**Erase** removes local input and uses an eraser icon. **Clear** and **Reset**
+are reserved synonyms for whole-board player-input removal with preserved
+givens/clues and confirmation; no such whole-board action is added here.
+
+Sudoku and Daily Word have an optional **Large controls** icon beside their
+headings. These native scrolling dialogs provide genuinely large input targets
+and reflowing 20sp descriptions: Sudoku has a coordinate/value/notes selector
+and a three-column digit bank; Daily Word has a letter selector, Add/Delete/Enter
+and readable guess feedback. Their compact spatial boards and original one-row
+Sudoku bank / uniform QWERTY keyboard remain available; those dense controls
+do not themselves promise 48dp targets or unlimited font enlargement.
+The alternatives follow font scaling instead of fitting the text smaller.
+Daily Word announces each accepted guess and the final result once; Enter
+activates a focused native control rather than always submitting a guess.
+
+These are original procedural generators, not a bundled level catalog or a
+symmetry-only template. Takuzu starts with a randomly searched valid binary grid;
+Nonograms samples pictures and derives runs; Futoshiki searches Latin squares and
+removes givens/inequalities; Numberlink samples and partitions Hamiltonian paths;
+Slitherlink grows connected cell regions and derives simple boundary loops.
+Each clue puzzle is accepted only after an exact solver proves **one solution**.
+Completion independently checks the displayed rules, never equality with a
+hidden target grid. This does not claim advanced human difficulty grading.
+Compact boards make proofs practical; a shared per-generation budget of
+3,000,000 search nodes / 10 seconds bounds the background work. Navigation cancels
+it. Exhaustion produces an explicit retry error and preserves the previous save;
+there is no ambiguous or mislabeled fallback.
+
+Minesweeper places its mines on the first reveal, excluding that square and all
+its neighbors. Later guesses may be necessary: **not a no-guess guarantee**.
+
+Each new mode uses its own versioned, checksummed atomic file under private
+`files/puzzles/`. A successful edit is saved before being displayed. Failed saves
+retain the previous board and report an error; unreadable saves require explicit
+replacement or retry. Timed LPZ3 envelopes retain LPZ1/LPZ2 reading, exact boards
+and Undo; legacy elapsed starts at zero. Sudoku, settings and library formats
+are unchanged. `puzzleTest` runs reproducible per-mode batches with separate
+row-pattern, Latin, path-cover and exhaustive planar-loop oracles, and writes
+sample records plus test-only native fixtures under `dist/six-puzzles-20261117/`.
 
 ### Daily Word
 
@@ -52,8 +271,10 @@ Exact matches are counted first, then misplaced copies from left to right,
 so repeated letters cannot receive excess credit. TalkBack can read each row's
 letters and feedback; the keyboard retains the strongest result for each letter.
 Invalid, short, or already-tried guesses show an error without consuming an attempt.
-Finished boards remain visible; a loss reveals the answer. There is no timer,
-account, network permission, server, social feature, or notification.
+Finished boards remain visible; a loss reveals the answer. A concise active-play
+timer stays near the heading; a genuine win gets the same short confetti
+language as Sudoku, without hiding the result or replaying it on resume.
+There is no account, network permission, server, social feature, or notification.
 
 The immutable **local-v1** schedule uses `LocalDate`, not elapsed 24-hour periods:
 
@@ -69,8 +290,23 @@ changes the puzzle; devices on different dates can differ. The app checks on res
 at midnight while open, and on date/time/time-zone broadcasts, including DST and
 leap days. Each date's guesses and unfinished draft are saved independently in
 `daily-word-v1.bin`; returning to an already played date never resets it.
+The versioned QDW2 writer includes each date's elapsed time and reads QDW1
+records without changing guesses/drafts/schedule; unknown legacy time is zero.
 Failed saves keep the previous state and show an explicit error. Unreadable records
 are not silently replaced.
+
+The seven newly timed games count only resumed, focused, playable time, using a
+monotonic clock. Background/sleep, generation and unfocused modal time (including
+help and Word large controls) are excluded. Elapsed is checkpointed each second
+and at edits/lifecycle boundaries; an abrupt kill can lose the last uncheckpointed
+interval. Win/loss freezes it. Undo from completion resumes accumulated elapsed,
+not time spent looking at the result. Only successful New puzzle replacement
+resets generated-game time; Daily Word keeps a separate total for each date.
+Timer ticks update only their label, without rebuilding the board, moving focus,
+scrolling play or announcing seconds. Completion motion respects Android's
+disabled-animation preference, stops on focus/lifecycle loss, and never fires
+for loading, invalid/full-but-wrong boards, unchanged input or losses. No new
+best-time statistics were added; Sudoku's existing clock and records are unchanged.
 
 This is a finite **619-day repeating cycle**, not unlimited distinct words. The
 619 distinct answer words were selected locally from ordinary English vocabulary,
@@ -98,7 +334,7 @@ Dark Orange uses vivid pumpkin-orange fills with dark labels. Each has coordinat
 readable accents for board entries, notes, and outlines. Swatch fills keep their
 own hue regardless of the selected accent; only the selection outline changes.
 
-Select a digit in the bottom number bank to highlight matching entries and arm it.
+Select a digit in the below-board number bank to highlight matching entries and arm it.
 Matching visible notes get an accent-colored circle around that individual digit,
 including manually added notes; suppressed candidates stay hidden. Switching or
 clearing the bank selection updates these highlights without changing notes.
@@ -148,8 +384,8 @@ without blocking input. This feedback is skipped when Android disables animation
 The bottom controls contain only accessible Undo/Erase icon buttons, Notes, and the nine digits with
 their remaining counts; instructional and input-status text is omitted.
 Undo, Erase, and Notes have consistent 16dp internal padding and 56dp-high touch
-targets, with extra width for the Notes label. Erase uses a trash-can icon but
-still clears only the selected editable cell; it never deletes the game.
+targets, with extra width for the Notes label. Erase uses an eraser icon and
+removes only the selected editable cell's input; it never deletes the game.
 Difficulty and elapsed time share a centered header, without a filled-cell count.
 Custom buttons consistently use flat rounded surfaces with native ripple feedback;
 accent outlines separate secondary actions from the surrounding canvas, with
@@ -612,11 +848,49 @@ repeated hours, time-zone agreement, all 1,024 binary-alphabet duplicate-score p
 invalid guesses, wins/losses, six-guess cap, draft/record persistence, date revisits
 and corrupt-save rejection. `DailyWordDeviceTests` exercises real pointer taps,
 hub/mode isolation, validation, restart, non-color feedback/accessibility descriptions,
-light/dark rendering, landscape, enlarged-text scrolling, physical keyboard input,
+light/dark rendering, landscape, enlarged-text fitting/optional-panel scrolling, physical keyboard input,
 loss/win and injected-clock rollover. It never
 changes the system clock, time zone or animation settings. The daily save and its
 atomic recovery artifacts are restored in teardown; a durable outer backup of
 all validation `files` and `shared_prefs` is still required for crash recovery.
+
+`PuzzleDeviceTests` covers all six new games through real pointer input: hub/help
+navigation, edits, exact restart/Resume, discard confirmation and cancellation,
+last-move completion, Minesweeper loss, corruption recovery and mode isolation.
+It checks native light/dark layouts, landscape recreation and 1.6x in-process
+font configuration, without writing any global device setting. Generate its
+independently solved fixtures with `puzzleTest` first; copy the resulting
+`dist/six-puzzles-20261117/fixtures/` contents to the validation app's external
+`files/six-fixtures-20261117/` directory, then run that test class. These fixtures
+are test artifacts, never bundled production levels. Back up validation private
+files durably **before installation or testing** and restore/compare them in an
+outer cleanup step even if instrumentation crashes; do not use the player package.
+
+The 2026-11-18 focused Huawei validation is indexed at
+`dist/centered-menus-20261117/final/verification.json`. Twenty distinct selected
+native cases have passing final outcomes across the recorded runs; this is not
+a claim that the entire historical instrumentation suite was run. Coverage
+includes all eight fitted layouts (portrait/landscape and 2x in-process text),
+menus/settings, actual drag/cancel/Undo, quiet clue errors, red stable Mines loss,
+timers/completion, corrupted-save recovery and ordinary Sudoku input.
+Completed runs restored validation private files byte-for-byte and verified the
+regular player APK/data and global font/motion/accessibility/timezone unchanged.
+An interrupted overnight run was separately recovered from its durable backup.
+
+Nonogram generation sampled forty seeds at each of 5x5/8x8/10x10, all distinct
+and independently uniquely solved. Three native generation samples per size
+took at most 4ms in the final focused run; these observations are not latency
+guarantees. Numberlink sampled forty seeds per actual pair count (39 distinct
+three-pair, 40 distinct four-pair boards), all independently unique. Existing
+bounded cancellation/search limits remain in force. The largest Nonogram also
+round-trips all 500 real Undo steps within the save-size cap.
+
+Representative fixture screenshots and actual sampled Mines motion are in the
+same `final` folder. `mines-native-samples.gif` preserves roughly 0.5-second
+screenshot intervals; it is not continuous video. Enlarged/dense boards fit by
+scaling down, so neither the screenshots nor node/focus tests constitute
+48dp-target, TalkBack or Switch Access certification.
+
 The document-picker test creates actual JSON documents in Downloads, verifies
 their exported bytes, imports/re-imports them through Android's native picker,
 and checks atomic rejection of malformed, unsupported, nonunique and conflicting

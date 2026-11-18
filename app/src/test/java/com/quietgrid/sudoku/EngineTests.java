@@ -17,12 +17,15 @@ public final class EngineTests {
         digitSelection();
         cellFirstInput();
         exhaustedDigitsAndModes();
+        heldNotes();
         duplicatePrevention();
         houseCompletion();
         persistence();
+        activePlayTime();
         CurationTests.run();
         DifficultyTests.run();
         DailyWordTests.run();
+        PuzzleTests.run();
         generation();
         System.out.println("PASS: " + checks + " engine assertions");
     }
@@ -30,6 +33,58 @@ public final class EngineTests {
     private static void check(boolean condition, String reason) {
         checks++;
         if (!condition) throw new AssertionError(reason);
+    }
+
+    private static void heldNotes() throws Exception {
+        Game game = blank();
+        game.toggleDigit(2);
+        check(game.noteSelectedDigit(0), "Holding selected digit toggles its note");
+        check(game.values[0] == 0 && game.visibleNotes(0) == Sudoku.bit(2)
+                && !game.noteMode && game.armedDigit == 2 && game.selected == -1,
+                "Secondary input preserves value, input mode and armed digit");
+        check(game.noteSelectedDigit(0) && game.visibleNotes(0) == 0, "Second hold removes just that note");
+        check(game.undo() && game.visibleNotes(0) == Sudoku.bit(2), "Hold note is a real Undo unit");
+        check(game.selectCell(1) && game.values[1] == 2, "Default selected-number input still places the digit");
+        check(!game.noteSelectedDigit(0) && game.visibleNotes(0) == 0, "Hold respects temporary peer suppression");
+        check(game.undo() && game.visibleNotes(0) == Sudoku.bit(2), "Undo of placement restores held note provenance");
+        game.noteSelectedDigit(0);
+        ByteArrayOutputStream data = new ByteArrayOutputStream();
+        game.write(new DataOutputStream(data));
+        Game restored = Game.read(new DataInputStream(new ByteArrayInputStream(data.toByteArray())));
+        check(restored.undo() && restored.visibleNotes(0) == Sudoku.bit(2), "Held note and exact history survive resume");
+    }
+
+    private static void activePlayTime() {
+        long[] now = {1000};
+        ActivePlayTimer timer = new ActivePlayTimer(() -> now[0]);
+        timer.restore(0);
+        now[0] += 5000;
+        check(timer.elapsedMillis() == 0, "Opening/loading is not active play");
+        timer.setRunning(true); now[0] += 1500;
+        timer.setRunning(true); now[0] += 500;
+        check(timer.elapsedMillis() == 2000, "Ticks checkpoint without counting the same interval twice");
+        for (String pause : new String[]{"help", "settings/modal", "background", "screen off"}) {
+            timer.setRunning(false); long elapsed = timer.elapsedMillis();
+            now[0] += 60000; timer.setRunning(false);
+            check(timer.elapsedMillis() == elapsed, pause + " time excluded, including repeated callbacks");
+            timer.setRunning(true); now[0] += 250;
+        }
+        timer.setRunning(false);
+        check(timer.elapsedMillis() == 3000, "Only active intervals accumulate");
+        ActivePlayTimer restarted = new ActivePlayTimer(() -> now[0]);
+        restarted.restore(timer.elapsedMillis()); now[0] += 900000;
+        check(restarted.elapsedMillis() == 3000, "Process restart restores time, not its obsolete monotonic anchor");
+        restarted.setRunning(true); now[0] += 700;
+        restarted.setRunning(false); now[0] += 500000;
+        check(restarted.elapsedMillis() == 3700, "Terminal/completed idle time is frozen");
+        restarted.setRunning(true); now[0] += 300;
+        restarted.setRunning(false);
+        check(restarted.elapsedMillis() == 4000, "Undo completion resumes accumulated play, not completed idle time");
+        restarted.restore(0);
+        check(restarted.elapsedMillis() == 0, "Confirmed replacement/legacy unknown starts from zero");
+        check(ActivePlayTimer.label(3601000).equals("60:01"), "Elapsed display does not wrap at an hour");
+        try { restarted.restore(-1); throw new AssertionError("Negative elapsed accepted"); }
+        catch (IllegalArgumentException expected) { checks++; }
     }
 
     private static Game blank() {

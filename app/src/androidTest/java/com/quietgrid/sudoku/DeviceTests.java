@@ -77,7 +77,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         original.elapsedMillis = 123000;
         write(original);
         launch();
-        assertNotNull(findText("Choose your difficulty"));
+        assertNotNull(findText("Difficulty"));
         assertNull(findType(activity.getWindow().getDecorView(), BoardView.class));
         SystemClock.sleep(1200);
         assertEquals("Menu never advances saved play time", 123000L, saved().elapsedMillis);
@@ -85,18 +85,19 @@ public final class DeviceTests extends InstrumentationTestCase {
         clickPrefix("Resume ");
         int target = firstEmpty(original);
         clickText("Settings");
-        assertNotNull(findText("Colors"));
+        assertNotNull(findText("Auto notes"));
         long pausedTime = saved().elapsedMillis;
         SystemClock.sleep(1200);
         clickText("Auto notes: Easy");
         assertEquals("Settings pauses time", pausedTime, saved().elapsedMillis);
         assertTrue(saved().autoNotes);
         capture("sudoku-settings.png");
-        clickText("Blue");
+        clickText("Back to settings"); clickText("Blue"); clickText("Sudoku settings");
         assertEquals(4, settings().getInt("accentColor", -1));
         clickText("Show mistakes");
         assertTrue(saved().showMistakes);
         clickText("Show mistakes");
+        clickText("Back to settings");
         clickText("Close settings");
         BoardView board = board();
         Game auto = saved();
@@ -143,13 +144,13 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals("Unarmed outside tap also clears square highlight", -1, saved().selected);
 
         clickNumber(digit);
-        clickText("Notes: off");
+        clickText("Notes");
         assertEquals("Notes button preserves armed digit", digit, saved().armedDigit);
         assertTrue(saved().noteMode);
         assertEquals("Switching mode itself never writes", 0, saved().values[target]);
         selectCell(board, target);
         assertEquals(0, saved().visibleNotes(target) & Sudoku.bit(digit));
-        clickText("Notes: on");
+        clickText("Notes");
         assertEquals("Switching back preserves digit", digit, saved().armedDigit);
         assertEquals("Number-first notes never select a square", -1, saved().selected);
         assertFalse(saved().noteMode);
@@ -164,6 +165,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         clickText("Auto notes: Easy");
         clickText("Auto notes: Easy");
         assertTrue((saved().visibleNotes(target) & Sudoku.bit(digit)) != 0);
+        clickText("Back to settings");
         clickText("Close settings");
         clickNumber(digit);
         Game beforeRotation = saved();
@@ -184,7 +186,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         SystemClock.sleep(1200);
         finishActivity();
         launch();
-        assertNotNull(findText("Choose your difficulty"));
+        assertNotNull(findText("Difficulty"));
         assertEquals(stoppedTime, saved().elapsedMillis);
         clickPrefix("Resume ");
         assertTrue(Arrays.equals(beforeRotation.values, saved().values));
@@ -250,7 +252,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         SystemClock.sleep(1200);
         assertNull(findText("New game"));
         clickText("Done");
-        assertNotNull(findText("Choose your difficulty"));
+        assertNotNull(findText("Difficulty"));
         assertNull(findText("A fresh challenge. Your way to solve."));
         assertNull("Solved game not offered as resume", findPrefix(activity.getWindow().getDecorView(), "Resume "));
         assertEquals("Win stops timer", finishedTime, saved().elapsedMillis);
@@ -305,7 +307,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         }
         assertTrue("Classification uses native dialog choices", selected);
         getInstrumentation().waitForIdleSync();
-        assertNotNull(findText("Classification: Hard"));
+        assertNotNull(findText("Hard")); assertNotNull(findText("Classify"));
         Game completed = saved();
         try (DataInputStream in = new DataInputStream(new FileInputStream(libraryFile))) {
             PuzzleLibrary records = PuzzleLibrary.read(in);
@@ -318,12 +320,15 @@ public final class DeviceTests extends InstrumentationTestCase {
         capture("sudoku-classification.png");
         clickText("Done"); finishActivity(); launch();
         clickText("Settings");
-        assertNotNull(findText("Export puzzle records"));
-        assertNotNull(findText("Import curated collection"));
+        clickText("Back to settings");
+        assertNotNull(findText("Export"));
+        assertNotNull(findText("Import"));
+        clickText("Sudoku settings");
         clickText("Auto notes: Medium");
         assertTrue(settings().getBoolean("autoNotes.MEDIUM", false));
         assertFalse(settings().getBoolean("autoNotes.FOCUSED", true));
         assertFalse(settings().getBoolean("autoNotes.HARD", true));
+        clickText("Back to settings");
         clickText("Close settings");
         clickPrefix("Easy"); waitForGame();
         assertTrue("Completed first puzzle stays consumed after restart", Arrays.equals(second.clues, saved().clues));
@@ -355,7 +360,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         write(unfinished);
         launch();
         byte[] currentBefore = Files.readAllBytes(saveFile().toPath());
-        clickText("Settings");
+        openGlobalSettings();
         String filename = "sudoku-validation-" + System.currentTimeMillis() + ".json";
         String badFilename = filename.replace(".json", "-invalid.json");
         String conflictFilename = filename.replace(".json", "-conflict.json");
@@ -373,7 +378,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             PuzzleLibrary localHistory = new PuzzleLibrary();
             localHistory.recordCompletion(completed);
             writeLibrary(localHistory);
-            launch(); clickText("Settings");
+            launch(); openGlobalSettings();
             importThroughPicker(filename);
             waitExternalText("Collection imported");
             capture("sudoku-document-import.png");
@@ -488,7 +493,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         finishActivity(); launch(); clickPrefix("Resume ");
         assertTrue(Arrays.equals(fallback.clues, saved().clues));
         assertEquals(1, readLibrary().completedCount());
-        clickText("Menu"); clickText("Settings");
+        clickText("Menu"); openGlobalSettings();
         byte[] beforeImport = Files.readAllBytes(saveFile().toPath());
         String filename = "sudoku-validation-new-" + System.currentTimeMillis() + ".json";
         try {
@@ -502,7 +507,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             assertTrue("Import preserves the unfinished generated fallback game",
                     Arrays.equals(beforeImport, Files.readAllBytes(saveFile().toPath())));
             clickText("Close settings");
-            clickPrefix("Medium"); clickExternal("Start new game"); waitForGame();
+            clickPrefix("Medium"); clickExternal("Replace"); waitForGame();
             assertTrue("Newly imported unseen entries take priority again",
                     Arrays.equals(newlyCurated.clues, saved().clues));
             assertEquals(1, readLibrary().completedCount());
@@ -638,7 +643,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         fixture.values[target] = fixture.solution[target];
         write(fixture); launch();
         assertEquals(272000L, settings().getLong("bestTime.FOCUSED", -1));
-        assertNotNull(findText("Easy    Best 4:32"));
+        assertNull(findText("Best 4:32")); assertNotNull(findText("Easy"));
         assertNotNull(findNamed(activity.getWindow().getDecorView(), "Easy. Best solve time: 4:32"));
         assertNotNull(findText("Hard"));
         finishActivity();
@@ -658,18 +663,20 @@ public final class DeviceTests extends InstrumentationTestCase {
         write(hard); launch();
         assertEquals(200000L, settings().getLong("bestTime.FOCUSED", -1));
         assertEquals(400000L, settings().getLong("bestTime.HARD", -1));
-        assertNotNull(findText("Easy    Best 3:20"));
-        assertNotNull(findText("Hard    Best 6:40"));
+        assertNull(findText("Best 3:20")); assertNotNull(findText("Easy"));
+        assertNull(findText("Best 6:40")); assertNotNull(findText("Hard"));
+        assertNotNull(findNamed(activity.getWindow().getDecorView(), "Easy. Best solve time: 3:20"));
+        assertNotNull(findNamed(activity.getWindow().getDecorView(), "Hard. Best solve time: 6:40"));
         recreate();
         assertEquals("Recreation does not rewrite records", 400000L, settings().getLong("bestTime.HARD", -1));
-        clickText("Settings");
+        openGlobalSettings();
         for (String appearance : new String[]{"Dark", "Light"}) {
             chooseAppearance(appearance);
             clickText("Close settings");
-            assertNotNull(findText("Easy    Best 3:20"));
-            assertNotNull(findText("Hard    Best 6:40"));
+            assertNull(findText("Best 3:20")); assertNotNull(findText("Easy"));
+            assertNull(findText("Best 6:40")); assertNotNull(findText("Hard"));
             capture("sudoku-best-times-" + appearance.toLowerCase(java.util.Locale.ROOT) + ".png");
-            clickText("Settings");
+            openGlobalSettings();
         }
         clickText("Close settings");
         clickPrefix("Easy");
@@ -677,8 +684,8 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertFalse(saved().won());
         assertEquals("New games keep existing records", 200000L, settings().getLong("bestTime.FOCUSED", -1));
         finishActivity(); launch();
-        assertNotNull(findText("Easy    Best 3:20"));
-        assertNotNull(findText("Hard    Best 6:40"));
+        assertNull(findText("Best 3:20")); assertNotNull(findText("Easy"));
+        assertNull(findText("Best 6:40")); assertNotNull(findText("Hard"));
         clickPrefix("Resume ");
         clickText("Menu");
         assertEquals("Resume cannot create or change a best", 200000L, settings().getLong("bestTime.FOCUSED", -1));
@@ -957,11 +964,11 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals(8, saved().values[2]);
         assertEquals(0, saved().armedDigit);
         assertEquals(-1, saved().selected);
-        clickNumber(9); clickText("Notes: off");
+        clickNumber(9); clickText("Notes");
         selectCell(board(), 3);
         assertEquals(0, saved().visibleNotes(3) & Sudoku.bit(9));
         assertEquals(-1, saved().selected);
-        clickText("Notes: on");
+        clickText("Notes");
         assertEquals(9, saved().armedDigit);
         selectCell(board(), 3);
         assertEquals(9, saved().values[3]);
@@ -1064,7 +1071,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                 settings().getBoolean("autoNotes.FOCUSED", false));
         assertFalse(settings().getBoolean("autoNotes.HARD", true));
         assertTrue(Arrays.equals(kept, saved().notes));
-        assertNotNull(findPrefix(activity.getWindow().getDecorView(), "Resume easy"));
+        assertNotNull(findText("Resume"));
         assertFlatButtons(activity.getWindow().getDecorView());
         clickPrefix("Resume ");
         selectCell(board(), target);
@@ -1074,13 +1081,13 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals(0, saved().armedDigit);
         clickText("Undo");
         clickText("Sudoku");
-        clickText("Notes: off");
+        clickText("Notes");
         selectCell(board(), target);
         clickNumber(digit);
         assertEquals(0, saved().values[target]);
         assertEquals(0, saved().visibleNotes(target) & Sudoku.bit(digit));
         assertEquals(0, saved().armedDigit);
-        clickText("Notes: on");
+        clickText("Notes");
         clickText("Settings");
         clickText("Auto notes: Hard");
         assertTrue(settings().getBoolean("autoNotes.HARD", false));
@@ -1093,7 +1100,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         recreate();
         assertFalse(saved().autoNotes);
         assertTrue(settings().getBoolean("autoNotes.HARD", false));
-        clickText("Close settings"); clickText("Menu");
+        clickText("Back to settings"); clickText("Close settings"); clickText("Menu");
         capture("sudoku-consistent-menu.png");
         clickText("Hard"); confirmReplacement(); waitForGame();
         assertEquals(Sudoku.Difficulty.HARD, saved().difficulty);
@@ -1144,9 +1151,14 @@ public final class DeviceTests extends InstrumentationTestCase {
         android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
         assertNotNull(root);
         java.util.List<android.view.accessibility.AccessibilityNodeInfo> buttons =
-                root.findAccessibilityNodeInfosByText("Start new game");
+                root.findAccessibilityNodeInfosByText("Replace");
         assertFalse("Replacement confirmation is in the separate dialog window", buttons.isEmpty());
-        assertTrue(buttons.get(0).performAction(AccessibilityNodeInfo.ACTION_CLICK));
+        AccessibilityNodeInfo replace = null;
+        for (AccessibilityNodeInfo node : buttons)
+            if (node.isClickable() && node.isEnabled() && node.getText() != null
+                    && "Replace".equalsIgnoreCase(node.getText().toString())) { replace = node; break; }
+        assertNotNull("Select the affirmative button, not the matching dialog title", replace);
+        assertTrue(replace.performAction(AccessibilityNodeInfo.ACTION_CLICK));
         getInstrumentation().waitForIdleSync();
     }
 
@@ -1297,8 +1309,8 @@ public final class DeviceTests extends InstrumentationTestCase {
                 float density = activity.getResources().getDisplayMetrics().density;
                 Rect screen = new Rect();
                 activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(screen);
-                for (String name : new String[]{"Undo", "Erase", "Notes: "}) {
-                    View control = name.equals("Notes: ") ? findPrefix(activity.getWindow().getDecorView(), name)
+                for (String name : new String[]{"Undo", "Erase", "Notes"}) {
+                    View control = name.equals("Notes") ? activity.findViewById(android.R.id.content).findViewWithTag("notes-toggle")
                             : findNamed(activity.getWindow().getDecorView(), name);
                     if (control == null) capture("sudoku-padded-control-failure.png");
                     assertNotNull("Padded " + name + " exists in orientation " + orientation, control);
@@ -1314,7 +1326,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                     assertTrue("Padded control fits on screen", screen.contains(bounds));
                     assertEquals("Control is not clipped", control.getHeight(), bounds.height());
                 }
-                TextView notes = (TextView) findPrefix(activity.getWindow().getDecorView(), "Notes: ");
+                TextView notes = (TextView) activity.findViewById(android.R.id.content).findViewWithTag("notes-toggle");
                 assertTrue("Notes label fits inside its padding",
                         notes.getPaint().measureText(notes.getText().toString())
                                 <= notes.getWidth() - notes.getPaddingLeft() - notes.getPaddingRight());
@@ -1449,7 +1461,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             write(fixture); launch(); clickPrefix("Resume ");
             clickNumber(2);
             assertEquals(2, saved().armedDigit);
-            clickText("Notes: off");
+            clickText("Notes");
             assertTrue(saved().noteMode);
             assertEquals("Notes mode keeps note highlighting active", 2, saved().armedDigit);
             clickNumber(5);
@@ -1499,7 +1511,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         launch();
         assertEquals("Existing installs default to System", 0, settings().getInt("appearance", 0));
         clickPrefix("Resume ");
-        clickText("Settings");
+        openGlobalSettings();
         Game paused = saved();
         int systemNight = getInstrumentation().getTargetContext().getResources().getConfiguration().uiMode
                 & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
@@ -1546,10 +1558,10 @@ public final class DeviceTests extends InstrumentationTestCase {
             assertNull(findText("Last result"));
             assertNavigationIcon("Settings");
             capture("sudoku-clean-menu-" + (dark ? "dark" : "light") + ".png");
-            clickText("Settings");
+            openGlobalSettings();
             assertNavigationIcon("Close settings");
             clickText("Close settings");
-            assertNotNull("Closing menu settings returns to menu", findText("Choose your difficulty"));
+            assertNotNull("Closing menu settings returns to menu", findText("Difficulty"));
             clickText("Easy");
             assertNotNull(getInstrumentation().getUiAutomation().getRootInActiveWindow());
             capture("sudoku-appearance-" + (dark ? "dark" : "light") + "-dialog.png");
@@ -1558,7 +1570,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             launch();
             assertAppAppearance(dark);
             assertTrue("Persisted history survives relaunch", saved().canUndo());
-            clickPrefix("Resume "); clickText("Settings");
+            clickPrefix("Resume "); openGlobalSettings();
             paused = saved();
         }
         chooseAppearance("System");
@@ -1650,7 +1662,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             launch(); clickPrefix("Resume ");
             clickNumber(2);
             capture("sudoku-rich-dark-" + MainActivity.COLOR_NAMES[color].toLowerCase(java.util.Locale.ROOT) + ".png");
-            clickText("Settings");
+            openGlobalSettings();
             assertTrue(findNamed(activity.getWindow().getDecorView(), MainActivity.COLOR_NAMES[color]).isSelected());
             if (color == 1) {
                 ImageButton swatch = (ImageButton) findNamed(activity.getWindow().getDecorView(), "Orange");
@@ -1682,7 +1694,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             write(fixture);
             assertTrue(settings().edit().putInt("appearance", dark ? 2 : 1)
                     .putInt("accentColor", 3).putLong("bestTime.HARD", 290000).commit());
-            launch(); clickPrefix("Resume "); clickText("Settings");
+            launch(); clickPrefix("Resume "); openGlobalSettings();
             Game paused = saved();
             assertStableSwatches(dark, 3);
             for (int from = 0; from < MainActivity.COLOR_NAMES.length; from++) {
@@ -1780,7 +1792,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             launch();
             rotate(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
             clickPrefix("Resume ");
-            clickText("Settings");
+            openGlobalSettings();
             Game paused = saved();
             for (int color = 0; color < names.length; color++) {
                 for (int i = 0; i < names.length; i++) {
@@ -1815,7 +1827,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                 clickNumber(2);
                 assertEquals(2, saved().armedDigit);
                 capture("sudoku-color-" + (dark ? "dark-" : "light-") + names[color].toLowerCase(java.util.Locale.ROOT) + ".png");
-                clickText("Settings");
+                openGlobalSettings();
                 paused = saved();
             }
             for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
@@ -1981,6 +1993,184 @@ public final class DeviceTests extends InstrumentationTestCase {
         }
     }
 
+    public void testSudokuLargeNativeInputPreservesNotesAndUndo() throws Throwable {
+        Game fixture = focused(); fixture.setAutoNotes(true); write(fixture); launch(); clickPrefix("Resume ");
+        int target = firstEmpty(fixture), digit = fixture.solution[target]; selectCell(board(), target);
+        clickText("Large controls");
+        java.lang.reflect.Field field = MainActivity.class.getDeclaredField("largeControls"); field.setAccessible(true);
+        LargeControlsDialog dialog = (LargeControlsDialog) field.get(activity);
+        getInstrumentation().waitForIdleSync(); SystemClock.sleep(300);
+        View key = dialog.content.findViewWithTag("large-digit-" + digit); assertNotNull(key);
+        assertTrue(key.getWidth() / key.getResources().getDisplayMetrics().density >= 48);
+        assertTrue(key.getHeight() / key.getResources().getDisplayMetrics().density >= 48);
+        runTestOnUiThread(() -> key.requestRectangleOnScreen(new Rect(0, 0, key.getWidth(), key.getHeight()), true));
+        getInstrumentation().waitForIdleSync();
+        String label = key.getContentDescription().toString();
+        AccessibilityNodeInfo root = null;
+        for (int attempt = 0; attempt < 20 && root == null; attempt++) {
+            root = getInstrumentation().getUiAutomation().getRootInActiveWindow(); if (root == null) SystemClock.sleep(100);
+        }
+        assertNotNull(root);
+        boolean clicked = false;
+        for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(label))
+            if (label.contentEquals(node.getContentDescription())) {
+                assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK)); clicked = true; break;
+            }
+        assertTrue("Actual native large digit action was exposed", clicked);
+        getInstrumentation().waitForIdleSync(); assertEquals(digit, saved().values[target]);
+        View undo = findDialogText(dialog.content, "Undo"); assertNotNull(undo); tap(undo);
+        Game restored = saved(); assertTrue(Arrays.equals(fixture.values, restored.values));
+        assertTrue("Large input uses exact existing note provenance", Arrays.equals(fixture.notes, restored.notes));
+        android.content.res.Configuration prior = new android.content.res.Configuration(activity.getResources().getConfiguration());
+        runTestOnUiThread(dialog.window::dismiss);
+        try {
+            runTestOnUiThread(() -> {
+                android.content.res.Configuration large = new android.content.res.Configuration(prior); large.fontScale = 2;
+                activity.getResources().updateConfiguration(large, activity.getResources().getDisplayMetrics());
+            });
+            clickText("Large controls");
+            LargeControlsDialog enlarged = (LargeControlsDialog) field.get(activity);
+            getInstrumentation().waitForIdleSync(); SystemClock.sleep(300);
+            java.lang.reflect.Field summary = MainActivity.class.getDeclaredField("largeSquare"); summary.setAccessible(true);
+            TextView square = (TextView) summary.get(activity);
+            assertTrue(square.getText().toString().contains(", notes"));
+            assertTrue("Readable coordinates/notes scale to 2x", square.getTextSize() / square.getResources().getDisplayMetrics().density >= 39);
+            capture("puzzles-a11y-sudoku-large.png");
+            runTestOnUiThread(enlarged.window::dismiss);
+        } finally {
+            runTestOnUiThread(() -> activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics()));
+        }
+    }
+
+    public void testGridAdjacentControlsAndLargeType() throws Throwable {
+        Game fixture = focused(); write(fixture); launch(); clickPrefix("Resume ");
+        for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+            rotate(orientation); assertBankFits();
+            capture("puzzles-sudoku-adjacent-" + (orientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT ? "portrait" : "landscape") + ".png");
+            assertTrue(Arrays.equals(fixture.values, saved().values));
+        }
+        rotate(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        android.content.res.Configuration prior = new android.content.res.Configuration(activity.getResources().getConfiguration());
+        try {
+            runTestOnUiThread(() -> {
+                android.content.res.Configuration enlarged = new android.content.res.Configuration(prior); enlarged.fontScale = 1.6f;
+                activity.getResources().updateConfiguration(enlarged, activity.getResources().getDisplayMetrics());
+                try {
+                    java.lang.reflect.Method method = MainActivity.class.getDeclaredMethod("buildGame"); method.setAccessible(true); method.invoke(activity);
+                } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
+            });
+            getInstrumentation().waitForIdleSync(); SystemClock.sleep(300);
+            View bank = activity.findViewById(android.R.id.content).findViewWithTag("sudoku-bank");
+            runTestOnUiThread(() -> bank.requestRectangleOnScreen(new Rect(0, 0, bank.getWidth(), bank.getHeight()), true));
+            getInstrumentation().waitForIdleSync(); assertBankFits();
+            capture("puzzles-sudoku-adjacent-large.png");
+            assertTrue(Arrays.equals(fixture.values, saved().values));
+            openGlobalSettings();
+            android.widget.RadioButton system = (android.widget.RadioButton) findText("System");
+            android.widget.RadioButton light = (android.widget.RadioButton) findText("Light");
+            assertTrue("Enlarged appearance choices reflow rather than squeeze", light.getTop() >= system.getBottom());
+            TextView importControl = (TextView) findText("Import curated collection");
+            assertTrue("Enlarged action copy is not clipped", importControl.getHeight() >= importControl.getLayout().getHeight()
+                    + importControl.getCompoundPaddingTop() + importControl.getCompoundPaddingBottom());
+            capture("puzzles-settings-large-type.png");
+            clickText("Close settings");
+        } finally {
+            runTestOnUiThread(() -> activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics()));
+        }
+    }
+
+    public void testSelectedDigitHoldNotes() throws Throwable {
+        Game fixture = focused(); fixture.autoNotes = false; fixture.noteMode = false;
+        java.util.Arrays.fill(fixture.notes, 0);
+        write(fixture); launch(); clickPrefix("Resume ");
+        int target = firstEmpty(fixture), digit = fixture.solution[target];
+        clickNumber(digit);
+        Rect bounds = new Rect();
+        BoardView current = board();
+        current.getAccessibilityNodeProvider().createAccessibilityNodeInfo(target).getBoundsInScreen(bounds);
+        android.graphics.RectF grid = ViewportChecks.bounds(current);
+        holdAt(bounds, true);
+        assertEquals(0, saved().notes[target]); assertEquals(0, saved().values[target]);
+        holdAt(bounds, false);
+        assertEquals("Hold toggles a note, never the default number", Sudoku.bit(digit), saved().notes[target]);
+        assertEquals(0, saved().values[target]); assertEquals(digit, saved().armedDigit); assertFalse(saved().noteMode);
+        holdAt(bounds, false); assertEquals(0, saved().notes[target]); assertEquals(0, saved().values[target]);
+        clickText("Undo"); assertEquals(Sudoku.bit(digit), saved().notes[target]);
+        clickNumber(digit);
+        pointerTap(bounds.exactCenterX(), bounds.exactCenterY()); getInstrumentation().waitForIdleSync();
+        assertEquals(digit, saved().values[target]);
+        clickText("Undo"); assertEquals(0, saved().values[target]); assertEquals(Sudoku.bit(digit), saved().notes[target]);
+        clickNumber(digit);
+        AccessibilityNodeInfo node = current.getAccessibilityNodeProvider().createAccessibilityNodeInfo(target);
+        assertTrue(node.isLongClickable());
+        runTestOnUiThread(() -> assertTrue(current.getAccessibilityNodeProvider()
+                .performAction(target, AccessibilityNodeInfo.ACTION_LONG_CLICK, null)));
+        getInstrumentation().waitForIdleSync();
+        assertEquals(0, saved().notes[target]); assertEquals(0, saved().values[target]);
+        assertEquals("Input state never shifts the grid", grid, ViewportChecks.bounds(current));
+        holdAt(bounds, false);
+        capture("sudoku-hold-selected-note.png");
+        finishActivity(); launch(); clickPrefix("Resume ");
+        assertEquals(Sudoku.bit(digit), saved().notes[target]); assertEquals(0, saved().values[target]);
+        clickText("Undo"); assertEquals(0, saved().notes[target]);
+    }
+
+    private void holdAt(Rect bounds, boolean cancel) {
+        float x = bounds.exactCenterX(), y = bounds.exactCenterY();
+        long start = SystemClock.uptimeMillis();
+        MotionEvent down = MotionEvent.obtain(start, start, MotionEvent.ACTION_DOWN, x, y, 0);
+        getInstrumentation().sendPointerSync(down); down.recycle();
+        if (cancel) {
+            MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, x, y, 0);
+            getInstrumentation().sendPointerSync(event); event.recycle();
+        }
+        SystemClock.sleep(BinaryPress.timeout() + 60);
+        MotionEvent up = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
+        getInstrumentation().sendPointerSync(up); up.recycle();
+        getInstrumentation().waitForIdleSync(); SystemClock.sleep(120);
+    }
+
+    public void testFullSudokuViewport() throws Throwable {
+        Game fixture = focused(); write(fixture); launch();
+        ViewportChecks.controls(activity.getWindow().getDecorView());
+        capture("sudoku-menu-centered.png"); clickPrefix("Resume ");
+        for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+            rotate(orientation);
+            android.content.res.Configuration prior = new android.content.res.Configuration(activity.getResources().getConfiguration());
+            try {
+                for (float scale : new float[]{1f, 2f}) {
+                    runTestOnUiThread(() -> {
+                        android.content.res.Configuration changed = new android.content.res.Configuration(prior); changed.fontScale = scale;
+                        activity.getResources().updateConfiguration(changed, activity.getResources().getDisplayMetrics());
+                        try {
+                            java.lang.reflect.Method method = MainActivity.class.getDeclaredMethod("buildGame");
+                            method.setAccessible(true); method.invoke(activity);
+                        } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
+                    });
+                    getInstrumentation().waitForIdleSync(); SystemClock.sleep(250);
+                    ViewportChecks.all(activity);
+                    android.graphics.RectF before = ViewportChecks.bounds(board());
+                    View notes = activity.findViewById(android.R.id.content).findViewWithTag("notes-toggle");
+                    assertNotNull(notes); assertFalse(notes.isSelected());
+                    assertTrue(notes.getContentDescription().toString().startsWith("Notes"));
+                    tap(notes); assertTrue(notes.isSelected());
+                    tap(notes); assertFalse(notes.isSelected());
+                    assertEquals("Input-mode changes do not shift the board", before, ViewportChecks.bounds(board()));
+                    capture("sudoku-fit-" + orientation + "-" + (int) scale + ".png");
+                }
+            } finally { runTestOnUiThread(() ->
+                    activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics())); }
+        }
+    }
+
+    private View findDialogText(View view, String text) {
+        if (view instanceof TextView && text.contentEquals(((TextView) view).getText())) return view;
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
+            View child = findDialogText(((ViewGroup) view).getChildAt(i), text); if (child != null) return child;
+        }
+        return null;
+    }
+
     private Game focused() { return new Game(Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(41000))); }
 
     private int firstEmpty(Game game) {
@@ -1995,6 +2185,38 @@ public final class DeviceTests extends InstrumentationTestCase {
 
     private void write(Game game) throws Exception {
         try (DataOutputStream out = new DataOutputStream(new FileOutputStream(saveFile()))) { game.write(out); }
+    }
+
+    public void testOrganizedSudokuSettingsAndFixedNavigation() throws Throwable {
+        write(focused()); launch();
+        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), getInstrumentation().getTargetContext().getString(R.string.back_to_puzzles)),
+                findNamed(activity.getWindow().getDecorView(), "Settings"));
+        clickText("Settings");
+        assertNotNull(findText("Auto notes")); assertNull(findText("Colors"));
+        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Back to settings"), null);
+        boolean wasAuto = saved().autoNotes;
+        clickText("Auto notes: Easy");
+        assertEquals(!wasAuto, saved().autoNotes);
+        assertEquals(!wasAuto, settings().getBoolean("autoNotes.FOCUSED", wasAuto));
+        recreate(); assertNotNull(findText("Auto notes"));
+        assertEquals(!wasAuto, ((android.widget.Switch) findNamed(activity.getWindow().getDecorView(), "Auto notes: Easy")).isChecked());
+        capture("puzzles-settings-autonotes.png");
+        clickText("Auto notes: Easy"); assertEquals(wasAuto, saved().autoNotes);
+        clickText("Back to settings");
+        assertNotNull(findText("Colors")); assertNotNull(findNamed(activity.getWindow().getDecorView(), "Daily Word settings"));
+        View imports = findNamed(activity.getWindow().getDecorView(), "Import curated collection");
+        runTestOnUiThread(() -> imports.requestRectangleOnScreen(new Rect(0, 0, imports.getWidth(), imports.getHeight()), true));
+        getInstrumentation().waitForIdleSync();
+        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Close settings"), null);
+        capture("puzzles-settings-collection-last.png");
+        rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Close settings"), null);
+        clickText("Close settings"); clickPrefix("Resume ");
+        ViewportChecks.all(activity); capture("puzzles-settings-sudoku-navigation.png");
+    }
+
+    private void openGlobalSettings() {
+        clickText("Settings"); clickText("Back to settings");
     }
 
     private void launch() {
@@ -2053,6 +2275,7 @@ public final class DeviceTests extends InstrumentationTestCase {
 
     private void clickText(String text) {
         View view = findText(text);
+        if (view == null && text.equals("Notes")) view = activity.findViewById(android.R.id.content).findViewWithTag("notes-toggle");
         if (view == null) view = findNamed(activity.getWindow().getDecorView(), text);
         assertNotNull("Native control exists: " + text, view);
         tap(view);
@@ -2078,8 +2301,8 @@ public final class DeviceTests extends InstrumentationTestCase {
         getInstrumentation().runOnMainSync(() ->
                 view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true));
         getInstrumentation().waitForIdleSync();
-        int[] location = new int[2]; view.getLocationOnScreen(location);
-        float x = location[0] + view.getWidth() / 2f, y = location[1] + view.getHeight() / 2f;
+        android.graphics.RectF bounds = ViewportChecks.bounds(view);
+        float x = bounds.centerX(), y = bounds.centerY();
         long time = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, y, 0);
         MotionEvent up = MotionEvent.obtain(time, time + 60, MotionEvent.ACTION_UP, x, y, 0);
@@ -2115,7 +2338,7 @@ public final class DeviceTests extends InstrumentationTestCase {
     }
 
     private static View findPrefix(View view, String prefix) {
-        if (view instanceof TextView && ((TextView) view).getText().toString().startsWith(prefix)) return view;
+        if (view instanceof TextView && ((TextView) view).getText().toString().startsWith(prefix.trim())) return view;
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
@@ -2139,6 +2362,15 @@ public final class DeviceTests extends InstrumentationTestCase {
     }
 
     private void assertBankFits() throws Exception {
+        View controls = activity.findViewById(android.R.id.content).findViewWithTag("sudoku-controls");
+        Rect first = new Rect(), last = new Rect();
+        board().getAccessibilityNodeProvider().createAccessibilityNodeInfo(0).getBoundsInScreen(first);
+        board().getAccessibilityNodeProvider().createAccessibilityNodeInfo(80).getBoundsInScreen(last);
+        int[] position = new int[2]; controls.getLocationOnScreen(position);
+        float density = controls.getResources().getDisplayMetrics().density;
+        float below = (position[1] - last.bottom) / density, beside = (position[0] - last.right) / density;
+        assertTrue("Controls are adjacent to the actual drawn grid, not the screen bottom",
+                below >= 0 && below <= 16 || beside >= 0 && beside <= 48);
         Game g = saved();
         Rect screen = new Rect();
         activity.getWindow().getDecorView().getWindowVisibleDisplayFrame(screen);

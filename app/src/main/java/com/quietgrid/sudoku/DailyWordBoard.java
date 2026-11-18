@@ -46,6 +46,18 @@ final class DailyWordBoard extends LinearLayout {
         }
     }
 
+    void focusDraft(int row) {
+        rows[row].setFocusableInTouchMode(true);
+        rows[row].requestFocus();
+    }
+
+    @Override protected void onMeasure(int widthSpec, int heightSpec) {
+        int width = resolveSize(dp(320), widthSpec);
+        int height = resolveSize(Math.round((width - dp(12)) * 6f / 5 + dp(12)), heightSpec);
+        super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+    }
+
     @Override protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         float density = getResources().getDisplayMetrics().density;
@@ -60,8 +72,6 @@ final class DailyWordBoard extends LinearLayout {
             boolean active = !game.finished(day) && r == day.guesses().size();
             String word = submitted ? day.guesses().get(r) : active ? day.draft() : "";
             int[] scored = submitted ? game.score(day, word) : null;
-            StringBuilder description = new StringBuilder("Guess ").append(r + 1).append(": ");
-            if (word.isEmpty()) description.append(active ? "enter your word" : "empty");
             for (int c = 0; c < 5; c++) {
                 TextView tile = tiles[r][c];
                 int state = submitted ? scored[c] : -1;
@@ -77,14 +87,24 @@ final class DailyWordBoard extends LinearLayout {
                 background.setCornerRadius(dp(6));
                 if (!submitted) background.setStroke(dp(active ? 2 : 1), active ? palette.accent : palette.line);
                 tile.setBackground(background);
-                if (!letter.isEmpty()) {
-                    if (c > 0) description.append(", ");
-                    description.append(letter);
-                    if (submitted) description.append(" ").append(stateName(state));
-                }
             }
-            rows[r].setContentDescription(description.toString());
+            rows[r].setContentDescription(rowDescription(game, day, r));
         }
+    }
+
+    static String rowDescription(DailyWord game, DailyWord.Day day, int row) {
+        boolean submitted = row < day.guesses().size();
+        boolean active = !game.finished(day) && row == day.guesses().size();
+        String word = submitted ? day.guesses().get(row) : active ? day.draft() : "";
+        int[] scores = submitted ? game.score(day, word) : null;
+        StringBuilder text = new StringBuilder("Guess ").append(row + 1).append(": ");
+        if (word.isEmpty()) text.append(active ? "enter your word" : "empty");
+        for (int i = 0; i < word.length(); i++) {
+            if (i > 0) text.append(", ");
+            text.append(Character.toUpperCase(word.charAt(i)));
+            if (submitted) text.append(" ").append(stateName(scores[i]));
+        }
+        return text.toString();
     }
 
     static String stateName(int state) {

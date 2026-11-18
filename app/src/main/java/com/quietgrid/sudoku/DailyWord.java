@@ -30,15 +30,22 @@ public final class DailyWord {
         public final LocalDate date;
         private final List<String> guesses = new ArrayList<>();
         private String draft = "";
+        private long elapsedMillis;
 
         private Day(LocalDate date) { this.date = date; }
         private Day(Day source) {
             date = source.date;
             guesses.addAll(source.guesses);
             draft = source.draft;
+            elapsedMillis = source.elapsedMillis;
         }
         public List<String> guesses() { return Collections.unmodifiableList(guesses); }
         public String draft() { return draft; }
+        public long elapsedMillis() { return elapsedMillis; }
+        public void setElapsed(long millis) {
+            if (millis < 0) throw new IllegalArgumentException("Negative play time.");
+            elapsedMillis = millis;
+        }
     }
 
     public DailyWord(Reader guesses, Reader schedule) throws IOException {
@@ -140,7 +147,7 @@ public final class DailyWord {
     }
 
     public void write(DataOutputStream out) throws IOException {
-        out.writeInt(0x51445731);
+        out.writeInt(0x51445732);
         out.writeUTF(SCHEDULE);
         out.writeInt(days.size());
         for (Day day : days.values()) {
@@ -148,11 +155,13 @@ public final class DailyWord {
             out.writeInt(day.guesses.size());
             for (String guess : day.guesses) out.writeUTF(guess);
             out.writeUTF(day.draft);
+            out.writeLong(day.elapsedMillis);
         }
     }
 
     public void read(DataInputStream in) throws IOException {
-        if (in.readInt() != 0x51445731 || !in.readUTF().equals(SCHEDULE)) {
+        int version = in.readInt();
+        if ((version != 0x51445731 && version != 0x51445732) || !in.readUTF().equals(SCHEDULE)) {
             throw new IOException("Unrecognized Daily Word save or schedule.");
         }
         int count = in.readInt();
@@ -174,6 +183,10 @@ public final class DailyWord {
                     throw new IOException("Invalid Daily Word draft.");
                 }
                 day.draft = draft;
+                if (version == 0x51445732) {
+                    day.elapsedMillis = in.readLong();
+                    if (day.elapsedMillis < 0) throw new IOException("Invalid Daily Word play time.");
+                }
                 restored.put(date, day);
             }
             if (in.read() != -1) throw new IOException("Unexpected Daily Word save contents.");

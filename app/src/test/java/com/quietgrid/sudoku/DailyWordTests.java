@@ -28,6 +28,7 @@ public final class DailyWordTests {
         calendar();
         scoring();
         playAndPersistence();
+        timedRecords();
         badData();
         System.out.println("PASS: " + checks + " Daily Word assertions");
     }
@@ -164,6 +165,46 @@ public final class DailyWordTests {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         game.write(new DataOutputStream(bytes));
         return bytes.toByteArray();
+    }
+
+    private static void timedRecords() throws Exception {
+        DailyWord game = fresh();
+        DailyWord.Day first = game.day(DailyWord.EPOCH);
+        type(game, first, "apple"); game.submit(first);
+        type(game, first, "bl");
+        first.setElapsed(12345);
+        DailyWord.Day second = game.day(DailyWord.EPOCH.plusDays(1));
+        type(game, second, "sense"); game.submit(second); second.setElapsed(99000);
+        DailyWord restored = fresh();
+        restored.read(new DataInputStream(new ByteArrayInputStream(bytes(game))));
+        check(restored.day(first.date).elapsedMillis() == 12345 && restored.day(second.date).elapsedMillis() == 99000,
+                "Per-date active time persists independently across rollover, rollback and restart");
+        check(restored.day(first.date).draft().equals("bl") && restored.day(first.date).guesses().equals(List.of("apple")),
+                "Timer storage retains previous drafts/attempts");
+        check(restored.won(restored.day(second.date)), "Finished date remains terminal");
+        check(restored.day(second.date.plusDays(1)).elapsedMillis() == 0, "Unplayed date starts at zero");
+        DailyWord copy = new DailyWord(game);
+        copy.day(first.date).setElapsed(888);
+        check(game.day(first.date).elapsedMillis() == 12345, "Prospective save isolates timing changes too");
+
+        ByteArrayOutputStream old = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(old);
+        out.writeInt(0x51445731); out.writeUTF(DailyWord.SCHEDULE); out.writeInt(2);
+        for (DailyWord.Day day : new DailyWord.Day[]{first, second}) {
+            out.writeUTF(day.date.toString()); out.writeInt(day.guesses().size());
+            for (String guess : day.guesses()) out.writeUTF(guess);
+            out.writeUTF(day.draft());
+        }
+        restored.read(new DataInputStream(new ByteArrayInputStream(old.toByteArray())));
+        check(restored.day(first.date).elapsedMillis() == 0 && restored.day(second.date).elapsedMillis() == 0,
+                "Legacy records migrate with unknown elapsed zero, not invented history");
+        check(restored.day(first.date).draft().equals("bl") && restored.won(restored.day(second.date)),
+                "Legacy migration preserves active and completed days");
+        byte[] bad = bytes(game);
+        Arrays.fill(bad, bad.length - 8, bad.length, (byte) 0xff);
+        byte[] before = bytes(restored);
+        try { restored.read(new DataInputStream(new ByteArrayInputStream(bad))); throw new AssertionError("Negative time accepted"); }
+        catch (IOException expected) { check(Arrays.equals(before, bytes(restored)), "Corrupted timing never resets/replaces records"); }
     }
 
     private static void badData() throws Exception {

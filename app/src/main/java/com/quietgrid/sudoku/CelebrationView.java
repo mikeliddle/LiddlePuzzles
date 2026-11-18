@@ -20,9 +20,15 @@ final class CelebrationView extends View {
     private final float[] direction = new float[72], speed = new float[72], spin = new float[72];
     private ValueAnimator animator;
     private float progress;
+    private final String[] symbols;
 
     CelebrationView(Context context, MainActivity.Palette palette, Runnable finished) {
+        this(context, palette, finished, new String[]{"1", "2", "3", "4", "5", "6", "7", "8", "9"});
+    }
+
+    CelebrationView(Context context, MainActivity.Palette palette, Runnable finished, String[] symbols) {
         super(context);
+        this.symbols = symbols;
         this.palette = palette; this.finished = finished;
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         setClickable(false); setFocusable(false);
@@ -49,7 +55,7 @@ final class CelebrationView extends View {
     }
 
     void stop() {
-        if (animator != null) { animator.removeAllListeners(); animator.cancel(); }
+        if (animator != null) { animator.removeAllListeners(); animator.removeAllUpdateListeners(); animator.cancel(); animator = null; }
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -65,9 +71,9 @@ final class CelebrationView extends View {
             paint.setAlpha(Math.round(255 * Math.max(0, Math.min(1, (1 - progress) * 4))));
             canvas.save();
             canvas.translate(x, y); canvas.rotate(spin[i] * t);
-            if (i < 9) {
+            if (i < symbols.length) {
                 paint.setTextSize(size * 0.08f);
-                canvas.drawText(Integer.toString(i + 1), 0, 0, paint);
+                canvas.drawText(symbols[i], 0, 0, paint);
             } else {
                 float width = size * 0.009f;
                 canvas.drawRect(-width, -width * 2, width, width * 2, paint);

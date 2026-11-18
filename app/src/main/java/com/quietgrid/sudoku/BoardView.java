@@ -29,6 +29,15 @@ public final class BoardView extends View {
     private int completedHouses;
     private final boolean[] completedCells = new boolean[81];
     private final Runnable clearRejection = () -> { rejectedCell = -1; invalidate(); };
+    private int pressedCell = -1, pressedPointer = -1;
+    private float pressedX, pressedY;
+    private boolean held, canceledPress;
+    private final Runnable hold = () -> {
+        if (!canceledPress && pressedCell >= 0 && game != null && game.armedDigit != 0 && hasWindowFocus()) {
+            held = true;
+            note(pressedCell);
+        }
+    };
 
     int rejectedCell() { return rejectedCell; }
     int animatedCell() { return animatedCell; }
@@ -36,6 +45,7 @@ public final class BoardView extends View {
     boolean animatesHouseCell(int cell) { return completedCells[cell]; }
 
     public void clearEntryFeedback() {
+        cancelPress();
         if (entryAnimator != null) {
             entryAnimator.removeAllListeners();
             entryAnimator.cancel();
@@ -106,6 +116,7 @@ public final class BoardView extends View {
     }
 
     @Override protected void onDetachedFromWindow() {
+        cancelPress();
         removeCallbacks(clearRejection);
         clearEntryFeedback();
         rejectedCell = -1;
@@ -270,20 +281,63 @@ public final class BoardView extends View {
     }
 
     public boolean containsBoardPoint(float screenX, float screenY) {
-        int[] location = new int[2];
-        getLocationOnScreen(location);
-        return cellAt(screenX - location[0], screenY - location[1]) >= 0;
+        android.graphics.Matrix transform = new android.graphics.Matrix();
+        transformMatrixToGlobal(transform);
+        android.graphics.Matrix inverse = new android.graphics.Matrix();
+        if (!transform.invert(inverse)) return false;
+        float[] point = {screenX, screenY}; inverse.mapPoints(point);
+        return cellAt(point[0], point[1]) >= 0;
+    }
+
+    @Override protected void onMeasure(int widthSpec, int heightSpec) {
+        int width = resolveSize(Math.round(dp(320)), widthSpec);
+        setMeasuredDimension(width, resolveSize(width + Math.round(dp(8)), heightSpec));
     }
 
     @Override public boolean onTouchEvent(MotionEvent event) {
-        if (event.getAction() == MotionEvent.ACTION_DOWN) return true;
-        if (event.getAction() == MotionEvent.ACTION_UP) {
-            int cell = cellAt(event.getX(), event.getY());
-            if (game != null && cell >= 0) select(cell);
-            performClick();
-            return true;
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                cancelPress(); canceledPress = false; held = false;
+                pressedCell = cellAt(event.getX(), event.getY()); pressedPointer = event.getPointerId(0);
+                pressedX = event.getX(); pressedY = event.getY();
+                if (pressedCell >= 0 && game != null && game.armedDigit != 0)
+                    postDelayed(hold, BinaryPress.timeout());
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (event.getPointerCount() != 1 || event.getPointerId(0) != pressedPointer
+                        || cellAt(event.getX(), event.getY()) != pressedCell
+                        || Math.hypot(event.getX() - pressedX, event.getY() - pressedY)
+                        > android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop()) cancelPress();
+                return true;
+            case MotionEvent.ACTION_UP:
+                if (!canceledPress && !held && pressedCell >= 0 && pressedCell == cellAt(event.getX(), event.getY())) {
+                    select(pressedCell); performClick();
+                }
+                cancelPress(); return true;
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_CANCEL:
+                cancelPress(); return true;
+            default: return true;
         }
-        return super.onTouchEvent(event);
+    }
+
+    private void cancelPress() {
+        removeCallbacks(hold); canceledPress = true; pressedCell = -1; pressedPointer = -1;
+    }
+
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused) cancelPress();
+    }
+
+    private void note(int cell) {
+        if (game == null) return;
+        clearEntryFeedback();
+        boolean entered = game.noteSelectedDigit(cell);
+        requestFocus();
+        if (entered && entryChanged != null) entryChanged.run();
+        else if (selectionChanged != null) selectionChanged.run();
+        sendCellEvent(cell, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED);
     }
 
     @Override public boolean performClick() { super.performClick(); return true; }
@@ -339,7 +393,7 @@ public final class BoardView extends View {
         return cell >= 0;
     }
 
-    private CharSequence description(int cell) {
+    CharSequence description(int cell) {
         if (game == null) return "Empty board";
         StringBuilder text = new StringBuilder("Row ").append(cell / 9 + 1)
                 .append(", column ").append(cell % 9 + 1).append(", ");
@@ -390,20 +444,31 @@ public final class BoardView extends View {
                 node.setCollectionItemInfo(AccessibilityNodeInfo.CollectionItemInfo.obtain(id / 9, 1, id % 9, 1, false));
                 node.setAccessibilityFocused(accessibilityFocus == id);
                 node.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                if (game != null && game.armedDigit != 0 && game.clues[id] == 0) {
+                    node.setLongClickable(true);
+                    node.addAction(new AccessibilityNodeInfo.AccessibilityAction(
+                            AccessibilityNodeInfo.ACTION_LONG_CLICK, "Toggle note " + game.armedDigit));
+                }
                 node.addAction(accessibilityFocus == id
                         ? AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
                         : AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS);
                 Rect bounds = new Rect(Math.round(left + id % 9 * cellSize), Math.round(top + id / 9 * cellSize),
                         Math.round(left + (id % 9 + 1) * cellSize), Math.round(top + (id / 9 + 1) * cellSize));
                 node.setBoundsInParent(bounds);
-                int[] location = new int[2]; getLocationOnScreen(location);
-                bounds.offset(location[0], location[1]); node.setBoundsInScreen(bounds);
+                android.graphics.Matrix transform = new android.graphics.Matrix();
+                transformMatrixToGlobal(transform);
+                android.graphics.RectF screenBounds = new android.graphics.RectF(bounds);
+                transform.mapRect(screenBounds); screenBounds.roundOut(bounds);
+                node.setBoundsInScreen(bounds);
                 return node;
             }
 
             @Override public boolean performAction(int id, int action, Bundle arguments) {
                 if (id < 0 || id >= 81) return false;
                 if (action == AccessibilityNodeInfo.ACTION_CLICK) { select(id); return true; }
+                if (action == AccessibilityNodeInfo.ACTION_LONG_CLICK && game != null && game.armedDigit != 0) {
+                    note(id); return true;
+                }
                 if (action == AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS) {
                     if (accessibilityFocus >= 0) sendCellEvent(accessibilityFocus, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
                     accessibilityFocus = id;

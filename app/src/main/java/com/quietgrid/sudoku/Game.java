@@ -71,9 +71,22 @@ public final class Game {
     }
 
     public boolean enter(int digit) {
+        return enter(digit, noteMode);
+    }
+
+    public boolean noteSelectedDigit(int cell) {
+        if (cell < 0 || cell >= 81) throw new IllegalArgumentException("Cell must be 0 through 80");
+        if (armedDigit == 0) return false;
+        selected = cell;
+        boolean entered = enter(armedDigit, true);
+        selected = -1;
+        return entered;
+    }
+
+    private boolean enter(int digit, boolean asNote) {
         if (selected < 0 || clues[selected] != 0 || digit < 1 || digit > 9 || won() || remaining(digit) == 0) return false;
-        if (!noteMode && conflicts(selected, digit)) return false;
-        if (noteMode) {
+        if (!asNote && conflicts(selected, digit)) return false;
+        if (asNote) {
             if (values[selected] != 0 || (Sudoku.candidates(values, selected) & Sudoku.bit(digit)) == 0) return false;
             checkpoint();
             notes[selected] ^= Sudoku.bit(digit);

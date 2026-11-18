@@ -19,6 +19,7 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -49,8 +50,18 @@ public final class DailyWordActivity extends Activity {
     private ImageButton erase;
     private MainActivity.Palette palette;
     private boolean registered;
+    private LargeControlsDialog largeControls;
+    private android.widget.Spinner letterPicker;
+    private android.widget.ArrayAdapter<String> letterChoices;
+    private Button largeAdd, largeDelete, largeEnter;
+    private TextView largeFeedback;
+    private final TextView[] largeGuesses = new TextView[6];
     Clock clock = Clock.systemUTC();
     ZoneId testZone;
+    final ActivePlayTimer playTime = new ActivePlayTimer(android.os.SystemClock::elapsedRealtime);
+    private TextView elapsed;
+    private CompletionFeedback completion;
+    private boolean resumed, focused;
 
     @Override protected void attachBaseContext(Context base) {
         super.attachBaseContext(MainActivity.appearanceContext(base));
@@ -82,6 +93,7 @@ public final class DailyWordActivity extends Activity {
             }
             game = loaded;
             date = today();
+            playTime.restore(game.day(date).elapsedMillis());
             build();
             refresh(null);
         } catch (IOException ex) {
@@ -101,22 +113,37 @@ public final class DailyWordActivity extends Activity {
 
     boolean checkDate() {
         if (game == null || today().equals(date)) return false;
+        playTime.setRunning(false); checkpointTime();
+        if (completion != null) completion.stop();
         date = today();
+        playTime.restore(game.day(date).elapsedMillis());
         refresh(null);
-        board.announceForAccessibility("New daily puzzle. Your previous guesses are saved.");
+        announceFeedback("New daily puzzle. Your previous guesses are saved.");
         return true;
     }
 
     private void input(char letter, boolean backspace, boolean submit) {
         if (game == null || checkDate()) return;
         if (game.finished(game.day(date))) return;
+        playTime.setRunning(false);
         DailyWord next = new DailyWord(game);
         DailyWord.Day day = next.day(date);
+        day.setElapsed(playTime.elapsedMillis());
         String error = null;
         if (submit) error = next.submit(day);
-        else if (!(backspace ? next.erase(day) : next.letter(day, letter))) return;
-        if (error != null) { refresh(error); return; }
-        if (persist(next)) { game = next; refresh(null); }
+        else if (!(backspace ? next.erase(day) : next.letter(day, letter))) { syncTime(); return; }
+        if (error != null) { refresh(error); announceFeedback(error); return; }
+        if (persist(next)) {
+            game = next; refresh(null);
+            if (submit) {
+                DailyWord.Day accepted = game.day(date);
+                String spoken = DailyWordBoard.rowDescription(game, accepted, accepted.guesses().size() - 1) + ".";
+                if (game.won(accepted)) spoken += " Puzzle complete.";
+                else if (game.finished(accepted)) spoken += " No guesses remaining. The word was " + game.answer(date).toUpperCase(Locale.ROOT) + ".";
+                announceFeedback(spoken);
+                if (game.won(accepted)) completion.celebrate();
+            }
+        }
     }
 
     private boolean persist(DailyWord next) {
@@ -132,57 +159,61 @@ public final class DailyWordActivity extends Activity {
         } catch (IOException ex) {
             file.failWrite(stream);
             Log.e("DailyWord", "Could not save daily word progress", ex);
-            refresh("Could not save. Check device storage, then try that entry again. Your previous progress is unchanged.");
+            String error = "Could not save. Check device storage, then try that entry again. Your previous progress is unchanged.";
+            refresh(error); announceFeedback(error);
             return false;
         }
     }
 
     void build() {
+        if (completion != null) completion.stop();
         LinearLayout root = root();
         float fontScale = getResources().getConfiguration().fontScale;
         boolean enlarged = fontScale > 1.2f;
-        boolean wide = !enlarged && getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        if (enlarged) {
-            ScrollView overflow = new ScrollView(this);
-            overflow.setFillViewport(true);
-            root.addView(overflow, new LinearLayout.LayoutParams(-1, -1));
-            root = new LinearLayout(this);
-            root.setOrientation(LinearLayout.VERTICAL);
-            overflow.addView(root, new ScrollView.LayoutParams(-1, -2));
-        }
+        boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         LinearLayout heading = new LinearLayout(this);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.setGravity(Gravity.TOP);
         int keyHeight = dp(enlarged ? 52 * fontScale : wide ? 48 : 52);
         heading.addView(home(), new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView title = copy("Daily Word", 26, palette.ink);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setMinHeight(dp(52));
-        title.setGravity(Gravity.CENTER_VERTICAL);
+        title.setGravity(Gravity.CENTER);
+        title.setSingleLine(true); title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
+        title.setAutoSizeTextTypeUniformWithConfiguration(10, 26, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        root.addView(heading);
+        ImageButton large = iconButton("Large controls", R.drawable.ic_large_controls);
+        large.setOnClickListener(v -> openLargeControls());
+        heading.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        ImageButton settings = iconButton("Settings", R.drawable.ic_settings);
+        settings.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)
+                .putExtra(MainActivity.OPEN_SETTINGS, true).putExtra(MainActivity.SETTINGS_GAME, "DAILY_WORD")));
+        heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        elapsed = copy("0:00", 18, palette.ink); elapsed.setTag("elapsed-time");
+        elapsed.setGravity(Gravity.CENTER);
+        elapsed.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+        FrameLayout clockLine = new FrameLayout(this);
+        clockLine.addView(elapsed, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(clockLine, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, fontScale))));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        root.addView(body, enlarged ? new LinearLayout.LayoutParams(-1, -2)
-                : new LinearLayout.LayoutParams(-1, 0, 1));
+        root.addView(body, new LinearLayout.LayoutParams(-1, -2));
         board = new DailyWordBoard(this, palette);
-        if (wide) body.addView(board, new LinearLayout.LayoutParams(0, -1, .9f));
-        else if (enlarged) body.addView(board, new LinearLayout.LayoutParams(-1, dp(384)));
-        else body.addView(board, new LinearLayout.LayoutParams(-1, 0, 1));
+        board.setTag("word-board");
+        if (wide) body.addView(board, new LinearLayout.LayoutParams(dp(300), -2));
+        else body.addView(board, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout controls = new LinearLayout(this);
-        controls.setOrientation(LinearLayout.VERTICAL);
+        controls.setOrientation(LinearLayout.VERTICAL); controls.setTag("word-controls");
         controls.setPadding(dp(4), 0, dp(4), dp(4));
-        if (enlarged) body.addView(controls, new LinearLayout.LayoutParams(-1, -2));
-        else {
-            ScrollView scroll = new ScrollView(this);
-            scroll.setFillViewport(true);
-            if (wide) body.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1.1f));
-            else body.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
-            scroll.addView(controls, new ScrollView.LayoutParams(-1, -2));
-        }
+        if (!wide) body.addView(controls, new LinearLayout.LayoutParams(-1, -2));
+        else body.addView(controls, new LinearLayout.LayoutParams(0, -2, 1.1f));
         status = copy("", 16, palette.ink);
-        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        controls.addView(status);
+        status.setTag("word-feedback");
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
+        status.setGravity(Gravity.CENTER);
+        status.setAutoSizeTextTypeUniformWithConfiguration(10, 16, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        clockLine.addView(status, new FrameLayout.LayoutParams(-1, -1));
         letters.clear();
         for (String line : new String[]{"qwertyuiop", "asdfghjkl", "zxcvbnm"}) {
             for (char letter : line.toCharArray()) {
@@ -201,9 +232,22 @@ public final class DailyWordActivity extends Activity {
         erase.setOnClickListener(v -> input('\0', true, false));
         controls.addView(new DailyWordKeyboard(this, letters, erase, enter, keyHeight),
                 new LinearLayout.LayoutParams(-1, -2));
+        if (wide) {
+            root.removeView(clockLine);
+            controls.addView(clockLine, 0);
+        }
+        status.setVisibility(View.INVISIBLE);
+        status.setSingleLine(true); status.setMinHeight(dp(24 * Math.max(1, fontScale)));
+        root.setPadding(dp(8), dp(4), dp(8), dp(4));
+        android.view.ViewGroup parent = (android.view.ViewGroup) root.getParent();
+        parent.removeView(root);
+        PlayViewport viewport = new PlayViewport(this, root, dp(wide ? 720 : 360), palette.background);
+        parent.addView(ScreenChrome.frame(this, heading, viewport, palette.background), new FrameLayout.LayoutParams(-1, -1));
+        parent.requestApplyInsets();
     }
 
     void refresh(String message) {
+        syncTime();
         DailyWord.Day day = game.day(date);
         board.show(game, day);
         boolean finished = game.finished(day);
@@ -211,8 +255,9 @@ public final class DailyWordActivity extends Activity {
                 ? "The word was " + game.answer(date).toUpperCase(Locale.ROOT) + "." : "";
         String feedback = message != null ? message : result;
         status.setText(feedback);
-        status.setVisibility(feedback.isEmpty() ? View.GONE : View.VISIBLE);
+        status.setVisibility(feedback.isEmpty() ? View.INVISIBLE : View.VISIBLE);
         status.setTextColor(message != null ? palette.error : palette.ink);
+        elapsed.setVisibility(feedback.isEmpty() ? View.VISIBLE : View.INVISIBLE);
         int[] states = game.keyboard(day);
         for (Button key : letters) {
             char letter = (Character) key.getTag();
@@ -224,12 +269,15 @@ public final class DailyWordActivity extends Activity {
         }
         enter.setEnabled(!finished);
         erase.setEnabled(!finished && !day.draft().isEmpty());
+        refreshLargeControls(feedback);
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         int keyCode = event.getKeyCode();
         if (game != null && !event.isCtrlPressed() && !event.isAltPressed()) {
             if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                View focused = getCurrentFocus();
+                if (focused != null && focused.isClickable() && focused.isEnabled()) return super.dispatchKeyEvent(event);
                 if (event.getAction() == KeyEvent.ACTION_DOWN) input('\0', false, true);
                 return true;
             }
@@ -239,11 +287,50 @@ public final class DailyWordActivity extends Activity {
             }
             int unicode = Character.toLowerCase(event.getUnicodeChar());
             if (unicode >= 'a' && unicode <= 'z') {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) input((char) unicode, false, false);
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    input((char) unicode, false, false);
+                    DailyWord.Day day = game.day(date);
+                    if (!game.finished(day)) board.focusDraft(day.guesses().size());
+                }
                 return true;
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    private void openLargeControls() {
+        largeControls = new LargeControlsDialog(this, palette, "Daily Word large controls");
+        letterPicker = largeControls.picker("Letter");
+        letterChoices = largeControls.choices(letterPicker);
+        largeAdd = largeControls.action("Add"); largeAdd.setContentDescription("Add letter");
+        largeAdd.setOnClickListener(v -> input((char) ('a' + letterPicker.getSelectedItemPosition()), false, false));
+        largeDelete = largeControls.action("Delete", R.drawable.ic_backspace); largeDelete.setOnClickListener(v -> input('\0', true, false));
+        largeEnter = largeControls.action("Enter"); largeEnter.setOnClickListener(v -> input('\0', false, true));
+        largeFeedback = largeControls.text("");
+        for (int row = 0; row < 6; row++) largeGuesses[row] = largeControls.text("");
+        largeControls.window.setOnDismissListener(d -> { largeControls = null; });
+        refreshLargeControls(status.getText().toString());
+        largeControls.window.show();
+    }
+
+    private void refreshLargeControls(String feedback) {
+        if (largeControls == null) return;
+        DailyWord.Day day = game.day(date); boolean finished = game.finished(day);
+        int choice = Math.max(0, letterPicker.getSelectedItemPosition());
+        int[] states = game.keyboard(day);
+        letterChoices.setNotifyOnChange(false); letterChoices.clear();
+        for (int i = 0; i < 26; i++) letterChoices.add((char) ('A' + i) + ", " + DailyWordBoard.stateName(states[i]));
+        letterChoices.notifyDataSetChanged(); letterPicker.setSelection(choice);
+        largeAdd.setEnabled(!finished && day.draft().length() < 5);
+        largeDelete.setEnabled(!finished && !day.draft().isEmpty()); largeEnter.setEnabled(!finished);
+        letterPicker.setEnabled(!finished);
+        largeFeedback.setText(feedback); largeFeedback.setVisibility(feedback.isEmpty() ? View.GONE : View.VISIBLE);
+        for (int row = 0; row < 6; row++) largeGuesses[row].setText(DailyWordBoard.rowDescription(game, day, row));
+    }
+
+    private void announceFeedback(String message) {
+        if (largeControls != null && largeControls.window.isShowing()) largeControls.announce(message);
+        else board.announceForAccessibility(message);
     }
 
     private final Runnable rollover = new Runnable() {
@@ -264,6 +351,8 @@ public final class DailyWordActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        resumed = true; checkDate(); syncTime();
+        handler.removeCallbacks(ticker); handler.post(ticker);
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_DATE_CHANGED);
         filter.addAction(Intent.ACTION_TIME_CHANGED);
@@ -275,9 +364,60 @@ public final class DailyWordActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        resumed = false; syncTime(); checkpointTime();
+        handler.removeCallbacks(ticker);
+        if (completion != null) completion.stop();
         handler.removeCallbacks(rollover);
         if (registered) { unregisterReceiver(dateChanged); registered = false; }
         super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        if (largeControls != null) largeControls.window.dismiss();
+        if (completion != null) completion.stop();
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    private void syncTime() {
+        playTime.setRunning(resumed && focused && game != null && !game.finished(game.day(date)));
+        if (elapsed == null) return;
+        long millis = playTime.elapsedMillis();
+        String label = ActivePlayTimer.label(millis);
+        if (!android.text.TextUtils.equals(elapsed.getText(), label)) elapsed.setText(label);
+        elapsed.setContentDescription(ActivePlayTimer.description(millis));
+    }
+
+    private void checkpointTime() {
+        if (game == null) return;
+        DailyWord.Day day = game.day(date);
+        long millis = playTime.elapsedMillis();
+        if (day.elapsedMillis() != millis) {
+            DailyWord next = new DailyWord(game);
+            next.day(date).setElapsed(millis);
+            if (persist(next)) game = next;
+        }
+    }
+
+    private final Runnable ticker = new Runnable() {
+        @Override public void run() {
+            checkDate(); syncTime(); checkpointTime();
+            if (resumed) handler.postDelayed(this, 1000);
+        }
+    };
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        focused = hasFocus; syncTime();
+        if (!hasFocus) {
+            checkpointTime();
+            if (completion != null) completion.stop();
+        }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) {
+        checkpointTime();
+        super.onSaveInstanceState(out);
     }
 
     private LinearLayout root() {
@@ -308,7 +448,10 @@ public final class DailyWordActivity extends Activity {
             view.setPadding(left + dp(8), top + dp(4), right + dp(8), bottom + dp(4));
             return insets;
         });
-        setContentView(root);
+        FrameLayout stage = new FrameLayout(this);
+        stage.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        completion = new CompletionFeedback(stage, palette);
+        setContentView(stage);
         root.requestApplyInsets();
         return root;
     }
@@ -343,6 +486,7 @@ public final class DailyWordActivity extends Activity {
         text.setText(value);
         text.setTextSize(size);
         text.setTextColor(color);
+        text.setGravity(Gravity.CENTER);
         text.setPadding(dp(4), dp(4), dp(4), dp(4));
         return text;
     }

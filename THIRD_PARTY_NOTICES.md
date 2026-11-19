@@ -48,4 +48,4 @@ Retain the scripts' existing copyright/license headers and the JAR's embedded
 Upstream: https://github.com/gradle/gradle
 
 Gradle and the Android Gradle Plugin are build tools, not third-party runtime
-libraries bundled into the Sudoku app.
+libraries bundled into Liddle Puzzles.

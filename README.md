@@ -13,9 +13,10 @@ licenses.
 
 ## Download
 
-The existing public **Sudoku-1.0.apk** is available from the
+Download **Liddle Puzzles** from the
 [latest GitHub Release](https://github.com/mikeliddle/LiddlePuzzles/releases/latest).
-It predates the Liddle Puzzles hub and Daily Word additions in this source checkout.
+From version 1.1.1 onward, the production download is named
+`liddle-puzzles-<version>.apk`; already-published historical assets remain unchanged.
 It is a signed sideload build for Android 10 and newer; no app store or account
 is needed. Open the downloaded APK to install, allowing installation from that
 specific browser/file manager only if Android requests it. Do not bypass
@@ -42,7 +43,10 @@ notes, preferences, best times and records do **not** transfer automatically.
 Keep the old app if its progress is needed; no private-data migration is included.
 Each mode has independent progress within the new app. Save formats and the
 production signing certificate are unchanged. The Java namespace/source package
-remains `com.quietgrid.sudoku`; manifest components are fully qualified.
+remains `com.quietgrid.sudoku`; manifest components are fully qualified. That
+internal namespace, existing signing configuration and the Sudoku game's own
+name are not the collection's display or download name. The Gradle root project
+uses the machine-readable name `liddle-puzzles`.
 The local signing-directory path and frozen Daily Word schedule stay unchanged.
 
 ### Six more generated puzzles
@@ -772,7 +776,11 @@ build-tools 36.0.0 Windows archive is pinned to SHA-256
 Artifact ZIP digests and APK checksums are verified between jobs; the final
 certificate, package/version, alignment and nondebuggable/no-permission manifest
 are checked before publication. Publication creates `v<versionName>` at the exact
-reviewed commit, with the APK and `SHA256SUMS.txt`; it refuses existing tags.
+reviewed commit, with `liddle-puzzles-<version>.apk` and `SHA256SUMS.txt`;
+it refuses existing tags. Workflow archives are named
+`liddle-puzzles-unsigned-<source-sha>` and `liddle-puzzles-signed-<source-sha>`.
+The signed archive contains exactly the branded APK and its matching checksum
+file. Previously published filenames/tags are immutable, not renamed in place.
 There is no arbitrary tag/ref input. Main changing while approvals are pending
 fails closed: review and start a fresh run.
 

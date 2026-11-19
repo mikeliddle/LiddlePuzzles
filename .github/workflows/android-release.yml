@@ -90,7 +90,7 @@ jobs:
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         id: upload
         with:
-          name: unsigned-${{ github.sha }}
+          name: liddle-puzzles-unsigned-${{ github.sha }}
           path: upload/unsigned.apk
           if-no-files-found: error
           retention-days: 7
@@ -146,7 +146,7 @@ jobs:
           VERSION_CODE: ${{ needs.build.outputs.code }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $keyDir = Join-Path $env:RUNNER_TEMP 'sudoku-release-key'
+          $keyDir = Join-Path $env:RUNNER_TEMP 'liddle-puzzles-release-key'
           try {
             if ($env:VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or $env:VERSION_CODE -notmatch '^[1-9][0-9]*$') { throw 'Invalid version.' }
             if ($env:INPUT_SHA -notmatch '^[a-f0-9]{64}$' -or (Get-FileHash input\unsigned.apk -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:INPUT_SHA) { throw 'Unsigned APK checksum mismatch.' }
@@ -169,7 +169,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Cannot restrict temporary key storage.' }
             [IO.File]::WriteAllBytes("$keyDir\release.jks", [Convert]::FromBase64String($env:KEYSTORE_BASE64))
             New-Item -ItemType Directory -Path signed | Out-Null
-            $apk = "signed\Sudoku-$env:VERSION.apk"
+            $apk = "signed\liddle-puzzles-$env:VERSION.apk"
             & $java -jar "$tools\lib\apksigner.jar" sign --ks "$keyDir\release.jks" --ks-key-alias $env:KEY_ALIAS --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out $apk input\unsigned.apk
             if ($LASTEXITCODE -ne 0) { throw 'Signing failed.' }
             $verified = & $java -jar "$tools\lib\apksigner.jar" verify --verbose --print-certs $apk
@@ -177,7 +177,7 @@ jobs:
             $certs = @($verified | Select-String '^Signer #[0-9]+ certificate SHA-256 digest: ([a-f0-9]+)$')
             if ($certs.Count -ne 1 -or $certs[0].Matches[0].Groups[1].Value -cne '5f5586f9864347814393fdfa2cc5f94ab9254c44a61742ab105c29760056f2e6') { throw 'Unexpected public-release certificate.' }
             $hash = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  Sudoku-$env:VERSION.apk" | Set-Content signed\SHA256SUMS.txt -Encoding ascii
+            "$hash  liddle-puzzles-$env:VERSION.apk" | Set-Content signed\SHA256SUMS.txt -Encoding ascii
             "apksha=$hash" >> $env:GITHUB_OUTPUT
             Remove-Item -LiteralPath "$apk.idsig" -ErrorAction SilentlyContinue
           } finally {
@@ -189,12 +189,12 @@ jobs:
       - name: Ensure temporary key cleanup even after a failed step
         if: always()
         run: |
-          $keyDir = Join-Path $env:RUNNER_TEMP 'sudoku-release-key'
+          $keyDir = Join-Path $env:RUNNER_TEMP 'liddle-puzzles-release-key'
           if (Test-Path -LiteralPath $keyDir) { Remove-Item -LiteralPath $keyDir -Recurse -Force -ErrorAction Stop }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         id: upload
         with:
-          name: signed-${{ github.sha }}
+          name: liddle-puzzles-signed-${{ github.sha }}
           path: signed/*
           if-no-files-found: error
           retention-days: 7
@@ -230,17 +230,17 @@ jobs:
           $zip = [IO.Compression.ZipFile]::OpenRead("$pwd\artifact.zip")
           try {
             $names = @($zip.Entries.FullName | Sort-Object)
-            $expected = @("SHA256SUMS.txt", "Sudoku-$env:VERSION.apk") | Sort-Object
+            $expected = @("SHA256SUMS.txt", "liddle-puzzles-$env:VERSION.apk") | Sort-Object
             if ($names.Count -ne 2 -or (Compare-Object $names $expected -CaseSensitive)) { throw 'Unexpected signed artifact contents.' }
           } finally { $zip.Dispose() }
           Expand-Archive artifact.zip -DestinationPath signed
-          if ((Get-FileHash "signed\Sudoku-$env:VERSION.apk" -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:APK_SHA) { throw 'Signed APK checksum mismatch.' }
-          if ((Get-Content signed\SHA256SUMS.txt -Raw).Trim() -cne "$env:APK_SHA  Sudoku-$env:VERSION.apk") { throw 'Checksum file mismatch.' }
+          if ((Get-FileHash "signed\liddle-puzzles-$env:VERSION.apk" -Algorithm SHA256).Hash.ToLowerInvariant() -cne $env:APK_SHA) { throw 'Signed APK checksum mismatch.' }
+          if ((Get-Content signed\SHA256SUMS.txt -Raw).Trim() -cne "$env:APK_SHA  liddle-puzzles-$env:VERSION.apk") { throw 'Checksum file mismatch.' }
           $tag = "v$env:VERSION"
           $existing = Invoke-WebRequest "https://api.github.com/repos/mikeliddle/LiddlePuzzles/git/ref/tags/$tag" -Headers $headers -SkipHttpErrorCheck
           if ($existing.StatusCode -ne 404) { throw 'Release tag already exists or could not be checked; refusing to reuse it.' }
-          $notes = "Reviewed source: $env:GITHUB_SHA`nAndroid versionCode: $env:VERSION_CODE`nApplication ID: fyi.mllab.puzzle. This is a separate app from com.quietgrid.sudoku; old private saves/settings do not transfer automatically.`nOffline, nondebuggable APK signed with the existing public-release certificate. See SHA256SUMS.txt."
-          gh release create $tag "signed\Sudoku-$env:VERSION.apk" signed\SHA256SUMS.txt --repo mikeliddle/LiddlePuzzles --target $env:GITHUB_SHA --title "Liddle Puzzles $env:VERSION" --notes $notes --fail-on-no-commits --draft
+          $notes = "Liddle Puzzles now uses liddle-puzzles download/build artifact names. Eight offline games, per-game settings and top-corner navigation; new Numberlink games are 6x6 only, and Slitherlink offers 4x4/6x6/8x8.`n`nReviewed source: $env:GITHUB_SHA`nAndroid versionCode: $env:VERSION_CODE`nApplication ID: fyi.mllab.puzzle. This is a separate app from com.quietgrid.sudoku; old private saves/settings do not transfer automatically.`nOffline, nondebuggable APK signed with the existing public-release certificate. See SHA256SUMS.txt."
+          gh release create $tag "signed\liddle-puzzles-$env:VERSION.apk" signed\SHA256SUMS.txt --repo mikeliddle/LiddlePuzzles --target $env:GITHUB_SHA --title "Liddle Puzzles $env:VERSION" --notes $notes --fail-on-no-commits --draft
           if ($LASTEXITCODE -ne 0) { throw 'Draft release or asset upload failed; inspect GitHub before retrying.' }
           gh release edit $tag --repo mikeliddle/LiddlePuzzles --draft=false
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed; inspect GitHub before retrying.' }

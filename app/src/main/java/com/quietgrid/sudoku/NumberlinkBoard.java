@@ -66,6 +66,12 @@ final class NumberlinkBoard extends ViewGroup {
         return colors[pair >= 1 && pair <= Numberlink.MAX_PAIRS ? pair : 0];
     }
 
+    android.graphics.RectF edgeBounds(int edge) {
+        int a = game.grid.a[edge], b = game.grid.b[edge];
+        return new android.graphics.RectF((a % n + .5f) * cell, (a / n + .5f) * cell,
+                (b % n + .5f) * cell, (b / n + .5f) * cell);
+    }
+
     private int hit(float x, float y) {
         if (x < 0 || y < 0 || x >= getWidth() || y >= getHeight()) return -1;
         return (int) (y / cell) * n + (int) (x / cell);

@@ -34,7 +34,7 @@ public final class ClassificationBatch {
                 long seed = FIRST_SEED + index - 1, before = System.nanoTime();
                 Sudoku.Puzzle puzzle = Sudoku.generateCandidate(new Random(seed));
                 long generated = System.nanoTime();
-                String id = PuzzleLibrary.id(puzzle.clues);
+                String id = GeneratedPuzzleSamples.id(puzzle.clues);
                 if (!seen.add(id)) throw new AssertionError("Duplicate puzzle at index " + index);
                 DifficultyTests.verifyPuzzle(puzzle);
                 Sudoku.Puzzle classified = Sudoku.classify(puzzle.clues);
@@ -55,7 +55,7 @@ public final class ClassificationBatch {
                 passMin[tier] = Math.min(passMin[tier], reported.passes);
                 passMax[tier] = Math.max(passMax[tier], reported.passes);
                 rows.write(String.format(Locale.ROOT, "%d,%d,%s,%s,%s,%d,1,%d,%d,%d,%d,%d,%d,%d,%.3f,%.3f%n",
-                        index, seed, id, PuzzleLibrary.givens(puzzle.clues), puzzle.difficulty.label, clues,
+                        index, seed, id, GeneratedPuzzleSamples.givens(puzzle.clues), puzzle.difficulty.label, clues,
                         hidden.hiddenSingles, hidden.passes, hidden.remaining, combined.hiddenSingles,
                         combined.nakedSingles, combined.passes, combined.remaining,
                         (generated - before) / 1e6, (verified - generated) / 1e6));

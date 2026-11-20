@@ -2,6 +2,6 @@
     <string name="app_name">Liddle Puzzles</string>
     <string name="back_to_puzzles">Back to Liddle Puzzles</string>
     <string name="game_status">%1$s  \u00b7  %2$d/81 filled</string>
-    <string name="save_error">Could not save this game. Check available device storage.</string>
+    <string name="save_error">Could not save this game. Pending changes were not applied. Check available device storage and try again.</string>
     <string name="ai_disclosure">This app, including its code and artwork, was generated with AI under human direction.</string>
 </resources>

@@ -21,8 +21,10 @@ public final class EngineTests {
         duplicatePrevention();
         houseCompletion();
         persistence();
+        importedSaveCompatibility();
+        committedCopyIsolation();
+        SaveTests.run();
         activePlayTime();
-        CurationTests.run();
         DifficultyTests.run();
         DailyWordTests.run();
         PuzzleTests.run();
@@ -33,6 +35,20 @@ public final class EngineTests {
     private static void check(boolean condition, String reason) {
         checks++;
         if (!condition) throw new AssertionError(reason);
+    }
+    private static void committedCopyIsolation() throws Exception {
+        Game game = blank();
+        game.selected = 0;
+        check(game.enter(2), "Create a committed move with history");
+        Game committed = game.copy();
+        game.selected = 1; game.enter(3);
+        check(committed.values[1] == 0 && committed.selected == 0, "Rejected edits cannot mutate committed board/selection");
+        check(committed.undo() && committed.values[0] == 0, "Committed copy retains independent Undo history");
+        check(game.values[0] == 2 && game.values[1] == 3, "Rollback copy Undo never changes prospective board");
+        Game retry = game.copy();
+        game.undo();
+        check(retry.undo() && retry.values[0] == 2 && retry.values[1] == 0,
+                "Copies preserve exact earlier steps even when source history changes");
     }
 
     private static void heldNotes() throws Exception {
@@ -217,6 +233,36 @@ public final class EngineTests {
         int undos = 0;
         while (copy.undo()) undos++;
         check(undos == 500, "Undo bound and persistence contract");
+    }
+
+    private static void importedSaveCompatibility() throws Exception {
+        int[] clues = "530070000600195000098000060800060003400803001700020006060000280000419005000080079"
+                .chars().map(c -> c - '0').toArray();
+        Game game = new Game(new Sudoku.Puzzle(clues, Sudoku.uniqueSolution(clues), Sudoku.Difficulty.HARD, null));
+        game.setAutoNotes(true);
+        game.selected = 2; game.enter(game.solution[2]);
+        game.elapsedMillis = 91000;
+        game.showMistakes = true;
+        byte[] current = encode(game);
+        Game restored = Game.read(new DataInputStream(new ByteArrayInputStream(current)));
+        check(restored.difficulty == Sudoku.Difficulty.HARD && Arrays.equals(restored.clues, clues),
+                "Imported active save keeps its exact givens and offered tier, without reclassification or a library");
+        check(Arrays.equals(current, encode(restored)), "Imported SUD3 save round-trips byte-for-byte");
+        check(restored.undo() && restored.values[2] == 0 && restored.visibleNotes(2) != 0,
+                "Imported active save retains exact Undo and notes");
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream legacy = new DataOutputStream(bytes);
+        legacy.writeInt(0x53554432); legacy.writeUTF("HARD");
+        for (int[] array : new int[][]{game.clues, game.solution, game.values, game.notes})
+            for (int value : array) legacy.writeShort(value);
+        legacy.writeBoolean(game.autoNotes); legacy.writeBoolean(game.showMistakes); legacy.writeBoolean(game.noteMode);
+        legacy.writeInt(game.selected); legacy.writeLong(game.elapsedMillis); legacy.writeInt(0);
+        restored = Game.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        check(restored.difficulty == Sudoku.Difficulty.HARD && Arrays.equals(restored.clues, clues)
+                && Arrays.equals(restored.values, game.values) && Arrays.equals(restored.notes, game.notes)
+                && restored.elapsedMillis == 91000 && restored.armedDigit == 0,
+                "Imported SUD2 active save remains readable without catalog data");
     }
 
     private static void digitSelection() {

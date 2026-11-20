@@ -18,7 +18,8 @@ final class BinaryPress {
 
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     static void attach(Button button, String secondaryName, Runnable secondary) {
-        final class Press implements View.OnTouchListener, View.OnAttachStateChangeListener {
+        final class Press implements View.OnTouchListener, View.OnAttachStateChangeListener,
+                android.view.ViewTreeObserver.OnWindowFocusChangeListener {
             private boolean canceled, held;
             private float x, y;
             private final Runnable hold = () -> {
@@ -52,8 +53,14 @@ final class BinaryPress {
                 return canceled || held;
             }
 
-            @Override public void onViewDetachedFromWindow(View view) { cancel(); }
-            @Override public void onViewAttachedToWindow(View view) {}
+            @Override public void onWindowFocusChanged(boolean focused) { if (!focused) cancel(); }
+            @Override public void onViewDetachedFromWindow(View view) {
+                cancel();
+                if (view.getViewTreeObserver().isAlive()) view.getViewTreeObserver().removeOnWindowFocusChangeListener(this);
+            }
+            @Override public void onViewAttachedToWindow(View view) {
+                view.getViewTreeObserver().addOnWindowFocusChangeListener(this);
+            }
         }
         Press press = new Press();
         button.setHapticFeedbackEnabled(false);

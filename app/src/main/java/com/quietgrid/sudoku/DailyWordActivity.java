@@ -11,7 +11,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.AtomicFile;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -28,7 +27,6 @@ import android.widget.TextView;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -62,6 +60,18 @@ public final class DailyWordActivity extends Activity {
     private TextView elapsed;
     private CompletionFeedback completion;
     private boolean resumed, focused;
+    private SaveQueue saves;
+    private SaveSession<DailyWordActivity> saveSession;
+    private final java.util.concurrent.ExecutorService loader = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private boolean rolloverPending;
+    private static final class Retained {
+        final SaveSession<DailyWordActivity> session;
+        Retained(SaveSession<DailyWordActivity> session) { this.session = session; }
+    }
+    private volatile LocalDate durableDate;
+    private volatile long durableElapsed;
+    private volatile long savedRevision;
+    java.util.function.Function<File, DurableFile> saveFileFactory = AndroidSaveFile::at;
 
     @Override protected void attachBaseContext(Context base) {
         super.attachBaseContext(MainActivity.appearanceContext(base));
@@ -78,26 +88,39 @@ public final class DailyWordActivity extends Activity {
                 == Configuration.UI_MODE_NIGHT_YES;
         int color = getSharedPreferences("settings", MODE_PRIVATE).getInt("accentColor", 3);
         palette = new MainActivity.Palette(dark, color >= 0 && color < MainActivity.COLOR_NAMES.length ? color : 3);
+        saves = SaveQueue.forPath(saved().getAbsolutePath());
+        saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
+                : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
+                        ex -> Log.e("DailyWord", "Game commit failed", ex));
+        saveSession.attach(this);
         load();
     }
 
-    private AtomicFile saved() { return new AtomicFile(new File(getFilesDir(), "daily-word-v1.bin")); }
+    private File saved() { return new File(getFilesDir(), "daily-word-v1.bin"); }
 
     private void load() {
+        LinearLayout opening = root(); opening.addView(home()); opening.addView(copy("Opening Daily Word...", 24, palette.ink));
+        loader.execute(this::read);
+    }
+    private void read() {
         try (InputStreamReader guesses = new InputStreamReader(getAssets().open("daily-word/guesses-v1.txt"), StandardCharsets.US_ASCII);
              InputStreamReader answers = new InputStreamReader(getAssets().open("daily-word/answers-v1.txt"), StandardCharsets.US_ASCII)) {
             DailyWord loaded = new DailyWord(guesses, answers);
-            AtomicFile file = saved();
-            if (file.getBaseFile().exists() || new File(file.getBaseFile() + ".bak").exists()) {
-                try (DataInputStream in = new DataInputStream(file.openRead())) { loaded.read(in); }
+            byte[] bytes = AndroidSaveFile.read(saved());
+            if (bytes != null) {
+                try (DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(bytes))) { loaded.read(in); }
             }
-            game = loaded;
-            date = today();
-            playTime.restore(game.day(date).elapsedMillis());
-            build();
-            refresh(null);
+            handler.post(() -> {
+                if (isDestroyed()) return;
+                game = loaded; date = today();
+                playTime.restore(game.day(date).elapsedMillis());
+                durableDate = bytes == null ? null : date; durableElapsed = game.day(date).elapsedMillis();
+                build(); refresh(null); saveSession.ready();
+            });
         } catch (IOException ex) {
             Log.e("DailyWord", "Could not open daily word data", ex);
+            handler.post(() -> {
+            if (isDestroyed()) return;
             game = null;
             LinearLayout root = root();
             root.addView(home());
@@ -106,6 +129,8 @@ public final class DailyWordActivity extends Activity {
             Button retry = button("Retry", true);
             retry.setOnClickListener(v -> load());
             root.addView(retry, new LinearLayout.LayoutParams(-1, dp(56)));
+            saveSession.ready();
+            });
         }
     }
 
@@ -113,19 +138,32 @@ public final class DailyWordActivity extends Activity {
 
     boolean checkDate() {
         if (game == null || today().equals(date)) return false;
-        playTime.setRunning(false); checkpointTime();
-        if (completion != null) completion.stop();
-        date = today();
-        playTime.restore(game.day(date).elapsedMillis());
-        refresh(null);
-        announceFeedback("New daily puzzle. Your previous guesses are saved.");
+        if (rolloverPending) return true;
+        rolloverPending = true;
+        saveSession.dispatch(DailyWordActivity::rolloverNow);
         return true;
+    }
+    private void rolloverNow() {
+        if (board != null) board.stopFeedback();
+        playTime.setRunning(false);
+        persistTimed(owner -> {
+            if (owner.completion != null) owner.completion.stop();
+            owner.date = owner.today(); owner.rolloverPending = false;
+            owner.playTime.restore(owner.game.day(owner.date).elapsedMillis());
+            owner.refresh(null);
+            if (owner.resumed) owner.announceFeedback("New daily puzzle. Your previous guesses are saved.");
+        });
     }
 
     private void input(char letter, boolean backspace, boolean submit) {
+        if (saveSession.defer(owner -> owner.input(letter, backspace, submit))) return;
         if (game == null || checkDate()) return;
         if (game.finished(game.day(date))) return;
+        board.stopFeedback();
         playTime.setRunning(false);
+        DailyWord.Day previous = game.day(date);
+        LocalDate enteredDate = date;
+        DailyWordActivity origin = this;
         DailyWord next = new DailyWord(game);
         DailyWord.Day day = next.day(date);
         day.setElapsed(playTime.elapsedMillis());
@@ -133,36 +171,45 @@ public final class DailyWordActivity extends Activity {
         if (submit) error = next.submit(day);
         else if (!(backspace ? next.erase(day) : next.letter(day, letter))) { syncTime(); return; }
         if (error != null) { refresh(error); announceFeedback(error); return; }
-        if (persist(next)) {
-            game = next; refresh(null);
+        persist(next, owner -> {
+            if (owner.date.equals(enteredDate) && next.finished(next.day(enteredDate)))
+                owner.playTime.restore(next.day(enteredDate).elapsedMillis());
+            owner.game = next; owner.refresh(null);
+            if (!owner.date.equals(enteredDate) || !owner.today().equals(enteredDate)) { owner.checkDate(); return; }
+            if (owner == origin && owner.resumed && owner.focused) owner.board.changed(previous, owner.game.day(owner.date), submit);
             if (submit) {
-                DailyWord.Day accepted = game.day(date);
-                String spoken = DailyWordBoard.rowDescription(game, accepted, accepted.guesses().size() - 1) + ".";
-                if (game.won(accepted)) spoken += " Puzzle complete.";
-                else if (game.finished(accepted)) spoken += " No guesses remaining. The word was " + game.answer(date).toUpperCase(Locale.ROOT) + ".";
-                announceFeedback(spoken);
-                if (game.won(accepted)) completion.celebrate();
+                DailyWord.Day accepted = owner.game.day(owner.date);
+                String spoken = DailyWordBoard.rowDescription(owner.game, accepted, accepted.guesses().size() - 1) + ".";
+                if (owner.game.won(accepted)) spoken += " Puzzle complete.";
+                else if (owner.game.finished(accepted)) spoken += " No guesses remaining. The word was " + owner.game.answer(owner.date).toUpperCase(Locale.ROOT) + ".";
+                if (owner == origin && owner.resumed) owner.announceFeedback(spoken);
+                if (owner == origin && owner.game.won(accepted) && owner.resumed && owner.focused) owner.completion.celebrate();
             }
-        }
+        });
     }
 
-    private boolean persist(DailyWord next) {
-        AtomicFile file = saved();
-        FileOutputStream stream = null;
-        try {
-            stream = file.startWrite();
-            DataOutputStream out = new DataOutputStream(stream);
-            next.write(out);
-            out.flush();
-            file.finishWrite(stream);
-            return true;
-        } catch (IOException ex) {
-            file.failWrite(stream);
-            Log.e("DailyWord", "Could not save daily word progress", ex);
-            String error = "Could not save. Check device storage, then try that entry again. Your previous progress is unchanged.";
-            refresh(error); announceFeedback(error);
-            return false;
-        }
+    private void persist(DailyWord next, java.util.function.Consumer<DailyWordActivity> success) {
+        LocalDate committedDate = date;
+        saveSession.commit(() -> write(next), owner -> {
+            owner.durableDate = committedDate; owner.durableElapsed = next.day(committedDate).elapsedMillis();
+            success.accept(owner);
+        }, (owner, ex) -> { owner.rolloverPending = false; owner.saveError(ex); });
+    }
+    private void write(DailyWord next) throws IOException {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        next.write(new DataOutputStream(bytes));
+        saveFileFactory.apply(saved()).commit(bytes.toByteArray());
+        savedRevision++;
+    }
+    private void saveError(IOException ex) {
+        Log.e("DailyWord", "Could not save daily word progress", ex);
+        String error = "Could not save. Pending changes were not applied. Check device storage, then try that entry again. Your previous progress is unchanged.";
+        refresh(error); announceFeedback(error);
+    }
+    private void persistTimed(java.util.function.Consumer<DailyWordActivity> success) {
+        DailyWord next = new DailyWord(game);
+        next.day(date).setElapsed(playTime.elapsedMillis());
+        persist(next, owner -> { owner.game = next; success.accept(owner); });
     }
 
     void build() {
@@ -364,17 +411,21 @@ public final class DailyWordActivity extends Activity {
     }
 
     @Override protected void onPause() {
-        resumed = false; syncTime(); checkpointTime();
+        resumed = false; syncTime(); saveSession.dispatch(DailyWordActivity::checkpointTime);
         handler.removeCallbacks(ticker);
         if (completion != null) completion.stop();
+        if (board != null) board.stopFeedback();
         handler.removeCallbacks(rollover);
         if (registered) { unregisterReceiver(dateChanged); registered = false; }
         super.onPause();
     }
 
     @Override protected void onDestroy() {
+        saveSession.detach(this, !isChangingConfigurations());
+        loader.shutdownNow();
         if (largeControls != null) largeControls.window.dismiss();
         if (completion != null) completion.stop();
+        if (board != null) board.stopFeedback();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
@@ -389,19 +440,27 @@ public final class DailyWordActivity extends Activity {
     }
 
     private void checkpointTime() {
-        if (game == null) return;
-        DailyWord.Day day = game.day(date);
+        if (game == null || !saveSession.idle()) return;
         long millis = playTime.elapsedMillis();
-        if (day.elapsedMillis() != millis) {
+        if (!date.equals(durableDate) || durableElapsed != millis) {
             DailyWord next = new DailyWord(game);
             next.day(date).setElapsed(millis);
-            if (persist(next)) game = next;
+            game = next;
+            LocalDate checkpointDate = date;
+            saves.checkpoint(() -> {
+                write(next); durableDate = checkpointDate; durableElapsed = millis;
+            }, ex -> {
+                Log.e("DailyWord", "Timer checkpoint failed", ex);
+                long failedRevision = savedRevision;
+                handler.post(() -> { if (!isDestroyed() && savedRevision == failedRevision) saveError(ex); });
+            });
         }
     }
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
-            checkDate(); syncTime(); checkpointTime();
+            checkDate(); syncTime();
+            if (game != null && (!date.equals(durableDate) || playTime.elapsedMillis() - durableElapsed >= 10000)) checkpointTime();
             if (resumed) handler.postDelayed(this, 1000);
         }
     };
@@ -412,13 +471,15 @@ public final class DailyWordActivity extends Activity {
         if (!hasFocus) {
             checkpointTime();
             if (completion != null) completion.stop();
+            if (board != null) board.stopFeedback();
         }
     }
 
     @Override protected void onSaveInstanceState(Bundle out) {
-        checkpointTime();
+        saveSession.dispatch(DailyWordActivity::checkpointTime);
         super.onSaveInstanceState(out);
     }
+    @Override public Object onRetainNonConfigurationInstance() { return new Retained(saveSession); }
 
     private LinearLayout root() {
         LinearLayout root = new LinearLayout(this);

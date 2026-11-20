@@ -23,6 +23,16 @@ public final class Game {
         difficulty = puzzle.difficulty;
         System.arraycopy(clues, 0, values, 0, 81);
     }
+    public Game copy() {
+        Game result = new Game(new Sudoku.Puzzle(clues, solution, difficulty, null));
+        System.arraycopy(values, 0, result.values, 0, 81);
+        System.arraycopy(notes, 0, result.notes, 0, 81);
+        result.autoNotes = autoNotes; result.showMistakes = showMistakes; result.noteMode = noteMode;
+        result.selected = selected; result.armedDigit = armedDigit; result.elapsedMillis = elapsedMillis;
+        for (Snapshot snapshot : history)
+            result.history.addLast(new Snapshot(snapshot.values.clone(), snapshot.notes.clone(), snapshot.autoNotes, snapshot.selected));
+        return result;
+    }
 
     public int visibleNotes(int cell) {
         return values[cell] == 0 ? notes[cell] & Sudoku.candidates(values, cell) : 0;

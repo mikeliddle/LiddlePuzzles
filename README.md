@@ -2,7 +2,7 @@
 
 A standalone, offline native Android puzzle app. Open this project in Android Studio.
 There is no in-app account, advertising, analytics, or network permission.
-Optional offline curated collections supplement an unlimited generated supply.
+New Sudoku games are generated locally in Easy, Medium and Hard tiers.
 
 The shared [UX design principles and per-game review](DESIGN.md) document
 navigation/icons, grid-adjacent controls, input, errors, motion and accessibility.
@@ -61,11 +61,11 @@ sounds, accounts, or network features are added to these games.
 | Game | Board and controls | Completion |
 | --- | --- | --- |
 | Takuzu | 6x6 or 8x8; new puzzles default to 8x8. Tap 0 / hold 1; repeat the same default value to clear, or select 0/1/Erase for repeated entry. Underlined clues are fixed. | Equal numbers of 0 and 1 per row/column, no three consecutive equal digits, no repeated completed rows or columns. |
-| Nonograms | 5x5, 8x8 or 10x10. Row/column run clues; tap to cycle filled / crossed empty / undecided. | The filled squares match all runs exactly; empty-square crosses are optional notes. |
+| Nonograms | 5x5, 8x8 or 10x10. Row/column run clues; tap fills, hold crosses; repeat either mark to clear. | The filled squares match all runs exactly; empty-square crosses are optional notes. |
 | Futoshiki | 4x4. Select a square, then 1–4 or the Erase icon. | Each row/column contains 1–4 once and follows every inequality. The pointed end faces the smaller digit. |
 | Minesweeper | 8x8, ten or fourteen mines. Tap reveals; hold toggles a flag. Explicit Flag tool retained. Covered/revealed cells have different persistent fills. | Reveal all safe squares to win. A revealed mine loses. Flags are optional and limited to the mine count. |
 | Numberlink | New puzzles: 6x6 with five pairs and required bends/detours. Legacy 4x4 games still Resume with history intact. Drag from an endpoint/existing path; backtrack to retract. Tap two neighboring squares remains an alternative. | Disjoint orthogonal paths join matching pairs and cover every square, with no branches or extra loops. |
-| Slitherlink | 4x4/6x6/8x8 cells. Tap edges to cycle line / cross / undecided, or open native accessible Edge controls. | Exactly one closed loop, no branches or loose ends, matching every numbered cell's adjacent-edge count. |
+| Slitherlink | 4x4/6x6/8x8 cells. Tap draws a line, hold crosses; repeat either mark to clear, or open native accessible Edge controls. | Exactly one closed loop, no branches or loose ends, matching every numbered cell's adjacent-edge count. |
 
 All eight normal-play screens fit the full board, clues and essential controls
 together without scrolling/panning. Landscape reflows them side by side;
@@ -222,7 +222,7 @@ top left, Settings at the top right. Settings contains global appearance/colors
 and an entry for each game. Sudoku's Auto notes and Mistakes live together;
 other games reuse their existing new-puzzle configuration without replacing
 current saves. Fixed configurations do not acquire invented options. Puzzle
-collection Export/Import are the last controls in the settings list.
+collection import/export and post-win ratings are not offered.
 
 **Erase** removes local input and uses an eraser icon. **Clear** and **Reset**
 are reserved synonyms for whole-board player-input removal with preserved
@@ -259,7 +259,7 @@ Each new mode uses its own versioned, checksummed atomic file under private
 `files/puzzles/`. A successful edit is saved before being displayed. Failed saves
 retain the previous board and report an error; unreadable saves require explicit
 replacement or retry. Timed LPZ3 envelopes retain LPZ1/LPZ2 reading, exact boards
-and Undo; legacy elapsed starts at zero. Sudoku, settings and library formats
+and Undo; legacy elapsed starts at zero. Sudoku and settings formats
 are unchanged. `puzzleTest` runs reproducible per-mode batches with separate
 row-pattern, Latin, path-cover and exhaustive planar-loop oracles, and writes
 sample records plus test-only native fixtures under `dist/six-puzzles-20261117/`.
@@ -304,7 +304,7 @@ are not silently replaced.
 
 The seven newly timed games count only resumed, focused, playable time, using a
 monotonic clock. Background/sleep, generation and unfocused modal time (including
-help and Word large controls) are excluded. Elapsed is checkpointed each second
+help and Word large controls) are excluded. Elapsed is checkpointed about every ten seconds
 and at edits/lifecycle boundaries; an abrupt kill can lose the last uncheckpointed
 interval. Win/loss freezes it. Undo from completion resumes accumulated elapsed,
 not time spent looking at the result. Only successful New puzzle replacement
@@ -435,11 +435,9 @@ Medium, Hard and the unfiltered common candidate pool are unchanged.
 
 Generation remains bounded at 180 candidates, cancellable and off the UI thread;
 failure reports a retryable error rather than substituting another tier.
-Legacy `FOCUSED`/`MEDIUM`/`HARD` save IDs, saved games, curated categories and
-human votes are unchanged. The gentleness policy only affects newly generated
-Easy puzzles, not the current game. **Unseen curated puzzles are still offered
-first** using the curator's stored labels and exact givens, so a sparse curated
-Easy can still feel harder; importing a collection does not apply this policy.
+Legacy `FOCUSED`/`MEDIUM`/`HARD` save IDs and saved games are unchanged.
+The gentleness policy only affects newly generated Easy puzzles, not the current
+game. Existing imported active puzzles retain their exact givens and saved tier.
 
 ### Generated-Easy calibration
 
@@ -517,7 +515,7 @@ Uninstalling or clearing app storage removes it.
 
 Time runs only during play, pausing in the menu, settings, and background.
 A solved board celebrates with animated digits and confetti, followed by elapsed
-time, offered difficulty, optional **Classify puzzle**, and **Done**, which returns to the main menu.
+time, saved difficulty, and **Done**, which returns to the main menu.
 Classification records how the puzzle felt: Easy, Medium or Hard. It never
 changes the game's offered difficulty, timer or personal-best category.
 The system's
@@ -547,113 +545,16 @@ described accessibility nodes, including row, column, value, fixed-clue status,
 visible notes, and optional mistake status. A physical keyboard can navigate with
 arrows and enter digits; it is not required.
 
-## Offline classification and curation
+## Generated-only Sudoku
 
-Complete a puzzle correctly, then choose **Classify puzzle** on the win screen.
-The choice is saved immediately and can be changed on that screen before **Done**.
-Skipping classification still records completion. There is one local record per
-exact set of givens, not a cross-user vote total. Records contain only the puzzle,
-the difficulty first offered to this player, and their optional classification:
-no device identity, account, solve time or gameplay annotations.
+Every new Sudoku uses the local generator and its verified Easy/Medium/Hard
+acceptance contract. There is no curated-first selection, post-win classification
+or collection import/export. Completion feedback and personal bests remain.
 
-For each difficulty, new games use the first unseen curated puzzle in collection
-order. Only valid completion consumes it; selection, abandonment and Resume do not.
-After that tier's collection is exhausted, the same locally certified generator
-supplies new games. Completion identities persist independently of the collection,
-across restart and re-import, including puzzles previously completed as generated
-games. New unseen imports become eligible immediately. A completed legacy current
-save seeds this history; earlier completions cannot be reconstructed from best times.
-
-### Export → curate on PC → import
-
-1. Open **Settings → Export puzzle records**. Choose a local folder in Android's
-   document picker. Copy `sudoku-puzzles.json` to your PC using USB file transfer
-   or another transfer method you choose. Export never replaces the unfinished game.
-2. In the JSON file, select records from `votes`. Copy each chosen record's `id`
-   and `givens` into `puzzles`, with the curator's chosen `difficulty`. Usually this
-   comes from `classification`, but the curator decides. Keep `votes` empty in the
-   distribution file. Merge submissions by `id`, resolving disagreements yourself:
-   identical puzzles should appear once, assigned to one difficulty.
-3. Copy the curated JSON back to the device. Choose
-   **Settings → Import curated collection**, then select it. The app checks every
-   record off the UI thread, validates unique solvability, and atomically adds the
-   entire collection or rejects it without changing existing records or the current
-   game. Import reports additions, identical duplicates and ignored vote records.
-
-This PowerShell example selects all classified local records; edit the resulting
-`puzzles` list to select a smaller collection or change curator classifications:
-
-```powershell
-$records = Get-Content -Raw .\sudoku-puzzles.json | ConvertFrom-Json
-$selected = @($records.votes | Where-Object { $null -ne $_.classification } |
-    ForEach-Object {
-        [ordered]@{ id = $_.id; givens = $_.givens; difficulty = $_.classification }
-    })
-[ordered]@{
-    format = 'quietgrid-sudoku'
-    version = 1
-    puzzles = $selected
-    votes = @()
-} | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 .\curated.json
-```
-
-Imports are additive, not collection replacement. Identical rows are deduplicated.
-Conflicting difficulties for an existing ID or within a file reject the whole
-import; this version does not remove or reclassify already imported catalog entries.
-Resolve conflicts against your existing catalog before importing.
-Vote records in a file are validated but **never** imported as local votes or
-completion history. Merely importing someone else's completion must not consume
-their puzzles for you.
-
-### Version 1 interchange contract
-
-Use UTF-8 JSON (an initial BOM is accepted). All four top-level fields are required,
-and unknown fields are rejected. A complete valid collection example:
-
-```json
-{
-  "format": "quietgrid-sudoku",
-  "version": 1,
-  "puzzles": [
-    {
-      "id": "19b928a88dcad4ac3117b40c27e2fc5cab100e991ff23d7dcd70f84c68baaaa5",
-      "givens": "530070000600195000098000060800060003400803001700020006060000280000419005000080079",
-      "difficulty": "Easy"
-    }
-  ],
-  "votes": []
-}
-```
-
-`givens` is exactly 81 ASCII digits, row-major, with `0` for an empty square.
-`id` is lowercase SHA-256 of those exact 81 ASCII bytes, with no newline or prefix.
-Do not hash the solution, player entries, JSON text or a transformed equivalent
-puzzle. Preserve exported IDs when curation does not change the givens.
-`difficulty` must be exactly `Easy`, `Medium` or `Hard`.
-
-A vote has exactly `id`, `givens`, `offeredDifficulty` (the same three labels) and
-`classification` (one label or JSON `null`). A catalog entry has exactly `id`,
-`givens` and `difficulty`. Human classification and catalog assignment are **not**
-algorithmic certification: a unique puzzle may be curated into any tier even if
-the logical solver rates it differently or cannot solve it without search.
-Generated puzzles always satisfy their algorithmic acceptance contracts.
-
-Imports are limited to 2 MiB, 2,000 catalog rows and 2,000 informational vote rows;
-the stored curated collection is capped at 2,000 puzzles. Validation is cancellable,
-with a 200,000-search-node limit per uniqueness check. Unsupported versions,
-malformed UTF-8/JSON, duplicate keys, bad IDs, invalid/filled/nonunique/unsolvable
-grids, unknown classifications and conflicting entries produce explicit errors.
-Very expensive unique grids can be rejected by the validation budget.
-Local completion history is not truncated to the import limits. Large lifetime
-exports can exceed them: curate a bounded subset and remove `votes` before import.
-Export includes all local records and the existing collection; it is not a
-save-game or completion-history backup/restore facility.
-
-Cancelling or interrupting import leaves local data unchanged. Android document
-providers do not offer universally atomic export: a failed/interrupted export
-may leave a partial destination file; delete that file and export again.
-Cloud-backed document providers may transfer a chosen file under their own
-policies; choose local device storage to keep the entire workflow offline.
+Current SUD2/SUD3 saves remain readable, including previously imported active
+puzzles, with their exact givens, saved tier, notes and Undo history. Existing
+`puzzle-library.bin` data and its recovery files are left on disk, unused; the app
+does not read, write, delete or migrate them.
 
 ## Build
 
@@ -685,9 +586,57 @@ bundled Java 25 is newer than this pinned Gradle version supports.
 Development APK: `app\build\outputs\apk\debug\app-debug.apk`.
 This is a debug-signed development APK, not a Play Store release.
 It retains the production application ID. Do not install it over an existing
-phone app to try curation without explicit authorization and a save-preservation
+phone app to test changes without explicit authorization and a save-preservation
 plan; a compatible debug installation could be replaced. Building does not
 install anything. Release version/signing configuration is unchanged by this feature.
+
+### Persistence and PR verification
+
+All game writers share an observable atomic commit boundary: synced staging and
+recovery files, atomic replacement and directory sync must succeed before an edit,
+replacement or win is published. Best times update only after the game save succeeds;
+failed preference commits restore the previous in-memory record and report an error.
+A failed game commit reports an error and
+attempts to restore the last committed bytes; a failed rollback is retained in the
+logged exception rather than hidden. Legacy `.bak` recovery and save formats stay
+readable. Confirmed generated-mode replacement choices survive recreation until
+successful commit or explicit cancellation. External Settings hosts do not open,
+migrate or write unrelated Sudoku progress.
+Existing saves are copied to recovery storage with an 8 KiB buffer, not loaded
+into memory during replacement. Even an oversized rejected file can be explicitly
+replaced while its exact prior bytes remain available for rollback.
+After a successful replacement, the ignored `.new` staging path retains the
+previous synced bytes until the next write. Retiring this backup by rename, rather
+than deleting it before the final sync, permits rollback without allocating new
+storage if that sync fails.
+
+The six generated-mode and Daily Word clocks update their labels each second.
+Time-only snapshots are checkpointed about every ten seconds on an ordered worker,
+coalescing pending checkpoints. Edits, Undo, replacement, rollover and terminal
+results use that same writer; lifecycle/focus boundaries checkpoint immediately,
+without blocking input, pause or recreation on disk. Ordered reads load on a worker
+behind submitted writes. A retained session preserves quick input intents across
+configuration changes, applying each against the last durably acknowledged state;
+failed saves cancel dependent pending input and expose a retry error. Closing an
+activity cancels unsubmitted intents, not a write already admitted to storage.
+Successful newer commits supersede
+stale checkpoint errors. Abrupt process death can lose uncheckpointed elapsed time
+or work still waiting on storage, never a falsely acknowledged move.
+
+`engineTest` includes injected staging/final-sync/replacement/rollback failures
+and controlled timer/transition ordering. `PersistenceDeviceTests` exercises native
+writer failures/retry, confirmed replacement recreation and Settings isolation;
+it also deliberately stalls disk while exercising responsive input/recreation
+and retained quick edits/Undo. A separate host process replaces and restores a
+64 MiB rejected save under a 32 MiB heap.
+run it only against the isolated validation package with a durable outer backup.
+Compilation is not proof that these device cases executed.
+
+The Android PR smoke workflow builds validation instrumentation and runs a
+repeatable seeded smoke test on an isolated hosted emulator. It uses no signing
+secrets, physical device or personal data. This complements, rather than replaces,
+full native testing and protected release verification. A local workflow check
+does not establish that hosted execution or branch protection has run.
 
 ## Public sideload releases
 
@@ -815,10 +764,8 @@ blockers, replacement/clearing/undo, manual edits and reset, immutable clues,
 remaining-count clamping, exhausted-digit disarming/re-enabling, armed input and
 notes-mode transitions, persistence/corrupt saves/history bounds,
 and 36 reproducibly seeded unique puzzles across all three difficulty contracts.
-The curation suite exercises exact identity, classification persistence, old
-SUD2/SUD3 saves, UTF-8 and JSON validation, unique/unsolvable/ambiguous grids,
-atomic conflict rejection, export/import separation, curated-first selection,
-completion-only consumption, generated fallback and unseen entries after re-import.
+Compatibility tests cover old SUD2/SUD3 saves and previously imported active
+puzzles without depending on a library or reclassifying their saved difficulty.
 
 Device tests exercise the real native controls, digit switching/cancelling,
 outside taps, given-cell behavior, note editing, exhausted digits, mode switching,
@@ -845,10 +792,10 @@ animator) for entry and three-house completion. Screenshots are captured at 450 
 width; frame CSVs preserve their actual capture times.
 Instrumentation targets the separate `fyi.mllab.puzzle.validation` package
 by default, labeled **Liddle Puzzles validation**, never the player installation. Fixtures
-replace only that validation installation's game, settings and puzzle library,
-including atomic-file recovery artifacts. A curation device test covers native
-classification, offered-difficulty best-time preservation, Medium preferences,
-curated selection and restart/Resume consumption. Each test normally
+replace only that validation installation's game and settings.
+Generated-only device fixtures cover active-puzzle compatibility, untouched old
+library bytes, absence of transfer/rating controls, and generation in every tier.
+Each test normally
 restores them in teardown, but a process crash can prevent that cleanup; keep a
 durable backup if you choose to retain anything in the validation installation.
 Do not interact with it while tests are running.
@@ -902,13 +849,6 @@ screenshot intervals; it is not continuous video. Enlarged/dense boards fit by
 scaling down, so neither the screenshots nor node/focus tests constitute
 48dp-target, TalkBack or Switch Access certification.
 
-The document-picker test creates actual JSON documents in Downloads, verifies
-their exported bytes, imports/re-imports them through Android's native picker,
-and checks atomic rejection of malformed, unsupported, nonunique and conflicting
-collections without changing the unfinished game's saved bytes. Its uniquely
-named document fixtures are deleted afterward. The native curation lifecycle
-test covers all tiers, abandonment/Resume, completion-only consumption, Medium
-generation after exhaustion, and newly imported unseen entries taking priority.
 New UI assertions use `runTestOnUiThread` so failures propagate to instrumentation
 rather than crashing the app's main thread.
 

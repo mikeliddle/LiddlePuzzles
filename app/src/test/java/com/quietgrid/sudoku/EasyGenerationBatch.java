@@ -38,7 +38,7 @@ public final class EasyGenerationBatch {
                 Sudoku.Puzzle puzzle = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(seed));
                 double elapsed = (System.nanoTime() - before) / 1e6;
                 generationMillis += elapsed;
-                if (!seen.add(PuzzleLibrary.id(puzzle.clues))) throw new AssertionError("Duplicate puzzle");
+                if (!seen.add(GeneratedPuzzleSamples.id(puzzle.clues))) throw new AssertionError("Duplicate puzzle");
                 DifficultyTests.verifyPuzzle(puzzle);
                 if (puzzle.difficulty != Sudoku.Difficulty.FOCUSED || !puzzle.rating.solved
                         || puzzle.rating.nakedSingles != 0) throw new AssertionError("Not hidden-only Easy");
@@ -46,8 +46,8 @@ public final class EasyGenerationBatch {
                 int opening = DifficultyTests.openingHiddenSingles(puzzle.clues);
                 clues.accept(clueCount); openings.accept(opening); passes.accept(puzzle.rating.passes);
                 rows.write(String.format(Locale.ROOT, "%d,%d,%s,%s,%s,Easy,%d,%d,1,%d,%d,%d,%.3f%n",
-                        index, seed, PuzzleLibrary.id(puzzle.clues), PuzzleLibrary.givens(puzzle.clues),
-                        PuzzleLibrary.givens(puzzle.solution), clueCount, opening,
+                        index, seed, GeneratedPuzzleSamples.id(puzzle.clues), GeneratedPuzzleSamples.givens(puzzle.clues),
+                        GeneratedPuzzleSamples.givens(puzzle.solution), clueCount, opening,
                         puzzle.rating.hiddenSingles, puzzle.rating.passes, puzzle.rating.remaining, elapsed));
                 int number = 0;
                 for (Sudoku.Step step : puzzle.rating.steps) {
@@ -86,8 +86,8 @@ public final class EasyGenerationBatch {
     }
 
     private static void control(BufferedWriter output, String sampler, long seed, Sudoku.Puzzle puzzle) throws Exception {
-        output.write(sampler + "," + seed + "," + PuzzleLibrary.id(puzzle.clues) + ","
-                + PuzzleLibrary.givens(puzzle.clues) + "," + puzzle.difficulty.label + ","
+        output.write(sampler + "," + seed + "," + GeneratedPuzzleSamples.id(puzzle.clues) + ","
+                + GeneratedPuzzleSamples.givens(puzzle.clues) + "," + puzzle.difficulty.label + ","
                 + puzzle.rating.hiddenSingles + "," + puzzle.rating.nakedSingles + ","
                 + puzzle.rating.passes + "," + puzzle.rating.remaining + "\n");
     }

@@ -32,8 +32,16 @@ public final class BoardView extends View {
     private int pressedCell = -1, pressedPointer = -1;
     private float pressedX, pressedY;
     private boolean held, canceledPress;
+    private boolean pendingArm;
+    private int pendingDigit;
+    private int effectiveArmedDigit() { return pendingArm ? pendingDigit : game.armedDigit; }
+    void clearPendingInput() { pendingArm = false; }
+    void acknowledgeInput() {
+        if (pendingArm && game != null && (game.armedDigit == pendingDigit || game.won()
+                || pendingDigit != 0 && game.remaining(pendingDigit) == 0)) pendingArm = false;
+    }
     private final Runnable hold = () -> {
-        if (!canceledPress && pressedCell >= 0 && game != null && game.armedDigit != 0 && hasWindowFocus()) {
+        if (!canceledPress && pressedCell >= 0 && game != null && effectiveArmedDigit() != 0 && hasWindowFocus()) {
             held = true;
             note(pressedCell);
         }
@@ -103,6 +111,15 @@ public final class BoardView extends View {
     }
 
     public void chooseDigit(int digit) {
+        if (dispatcher != null) {
+            if (game != null && game.selected < 0 && !game.won() && game.remaining(digit) > 0) {
+                pendingDigit = effectiveArmedDigit() == digit ? 0 : digit; pendingArm = true;
+            }
+            dispatcher.accept(view -> view.chooseDigitNow(digit)); return;
+        }
+        chooseDigitNow(digit);
+    }
+    private void chooseDigitNow(int digit) {
         if (game == null) return;
         clearEntryFeedback();
         int target = game.selected;
@@ -143,7 +160,15 @@ public final class BoardView extends View {
 
     public void setOnSelectionChanged(Runnable listener) { selectionChanged = listener; }
     public void setOnEntryChanged(Runnable listener) { entryChanged = listener; }
+    private java.util.function.Consumer<java.util.function.Consumer<BoardView>> dispatcher;
+    public void setDispatcher(java.util.function.Consumer<java.util.function.Consumer<BoardView>> dispatcher) { this.dispatcher = dispatcher; }
+    void committed(Game previous) {
+        for (int cell = 0; cell < 81; cell++) if (previous.values[cell] != game.values[cell] && game.values[cell] != 0) {
+            acknowledgeEntry(cell, previous.completedHouses(cell)); break;
+        }
+    }
     public void setGame(Game game) {
+        if (game != null && this.game != null && !java.util.Arrays.equals(game.solution, this.game.solution)) pendingArm = false;
         if (this.game != game) clearEntryFeedback();
         this.game = game;
         invalidate();
@@ -300,7 +325,7 @@ public final class BoardView extends View {
                 cancelPress(); canceledPress = false; held = false;
                 pressedCell = cellAt(event.getX(), event.getY()); pressedPointer = event.getPointerId(0);
                 pressedX = event.getX(); pressedY = event.getY();
-                if (pressedCell >= 0 && game != null && game.armedDigit != 0)
+                if (pressedCell >= 0 && game != null && effectiveArmedDigit() != 0)
                     postDelayed(hold, BinaryPress.timeout());
                 return true;
             case MotionEvent.ACTION_MOVE:
@@ -331,6 +356,10 @@ public final class BoardView extends View {
     }
 
     private void note(int cell) {
+        if (dispatcher != null) { dispatcher.accept(view -> view.noteNow(cell)); return; }
+        noteNow(cell);
+    }
+    private void noteNow(int cell) {
         if (game == null) return;
         clearEntryFeedback();
         boolean entered = game.noteSelectedDigit(cell);
@@ -343,6 +372,10 @@ public final class BoardView extends View {
     @Override public boolean performClick() { super.performClick(); return true; }
 
     private void select(int cell) {
+        if (dispatcher != null) { dispatcher.accept(view -> view.selectNow(cell)); return; }
+        selectNow(cell);
+    }
+    private void selectNow(int cell) {
         if (game == null) return;
         clearEntryFeedback();
         int previousHouses = game.completedHouses(cell);
@@ -365,8 +398,16 @@ public final class BoardView extends View {
         else if (code == KeyEvent.KEYCODE_DPAD_UP) select(Math.max(0, cell - 9));
         else if (code == KeyEvent.KEYCODE_DPAD_DOWN) select(Math.min(80, cell + 9));
         else if (code >= KeyEvent.KEYCODE_1 && code <= KeyEvent.KEYCODE_9) {
-            clearEntryFeedback();
             int digit = code - KeyEvent.KEYCODE_0;
+            if (dispatcher != null) { dispatcher.accept(view -> view.keyDigit(digit)); return true; }
+            keyDigit(digit);
+        } else if (code == KeyEvent.KEYCODE_DEL || code == KeyEvent.KEYCODE_FORWARD_DEL) {
+            if (dispatcher != null) dispatcher.accept(BoardView::keyClear); else keyClear();
+        } else return super.onKeyDown(code, event);
+        return true;
+    }
+    private void keyDigit(int digit) {
+            clearEntryFeedback();
             int target = game.selected;
             int previousHouses = game.completedHouses(target);
             if (conflictingEntry(game.selected, digit)) reject(game.selected);
@@ -374,11 +415,10 @@ public final class BoardView extends View {
                 acknowledgeEntry(target, previousHouses);
                 if (entryChanged != null) entryChanged.run();
             }
-        } else if (code == KeyEvent.KEYCODE_DEL || code == KeyEvent.KEYCODE_FORWARD_DEL) {
+    }
+    private void keyClear() {
             clearEntryFeedback();
             if (game.clear() && entryChanged != null) entryChanged.run();
-        } else return super.onKeyDown(code, event);
-        return true;
     }
 
     @Override public boolean dispatchHoverEvent(MotionEvent event) {

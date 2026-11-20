@@ -10,7 +10,6 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.AtomicFile;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -29,7 +28,6 @@ import android.widget.TextView;
 import com.quietgrid.sudoku.puzzles.*;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +60,7 @@ public final class PuzzleActivity extends Activity {
     private TextView status;
     private Button newPuzzle, retry, mineTool;
     private ImageButton undo;
+    private ImageButton gameSettingsButton;
     private final View[] binaryKeys = new View[3];
     private LinearLayout binaryBank;
     private View binaryGrid;
@@ -70,12 +69,13 @@ public final class PuzzleActivity extends Activity {
     private SlitherlinkBoard loop;
     private Spinner edgeChoice;
     private ArrayAdapter<String> edgeAdapter;
-    private Button loopTool;
+    private Button loopTool, loopLine, loopCross;
     private boolean busy, loadFailed, generationFailed, flag;
     private int selected = -1;
     final ActivePlayTimer playTime = new ActivePlayTimer(android.os.SystemClock::elapsedRealtime);
     private TextView clock;
     private CompletionFeedback completion;
+    private PuzzleFeedback feedback;
     private boolean resumed, focused;
     private PlayViewport playViewport;
     private LinearLayout sideActions;
@@ -83,6 +83,16 @@ public final class PuzzleActivity extends Activity {
     private TextView puzzleTitle;
     private boolean newRequested;
     private int newSetting;
+    private SaveQueue saves;
+    private SaveSession<PuzzleActivity> saveSession;
+    private byte[] replacementSave;
+    private static final class Retained {
+        final SaveSession<PuzzleActivity> session;
+        Retained(SaveSession<PuzzleActivity> session) { this.session = session; }
+    }
+    private volatile long durableElapsed;
+    private volatile long savedRevision;
+    java.util.function.Function<File, DurableFile> saveFileFactory = AndroidSaveFile::at;
 
     @Override protected void attachBaseContext(Context base) {
         super.attachBaseContext(MainActivity.appearanceContext(base));
@@ -106,8 +116,14 @@ public final class PuzzleActivity extends Activity {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         int accent = getSharedPreferences("settings", 0).getInt("accentColor", 3);
         palette = new MainActivity.Palette(dark, accent >= 0 && accent < MainActivity.COLOR_NAMES.length ? accent : 3);
-        newRequested = state == null && getIntent().hasExtra(NEW_SETTING);
-        newSetting = getIntent().getIntExtra(NEW_SETTING, mode.defaultSetting());
+        newRequested = state == null ? getIntent().hasExtra(NEW_SETTING) : state.getBoolean("newRequested");
+        newSetting = state == null ? getIntent().getIntExtra(NEW_SETTING, mode.defaultSetting())
+                : state.getInt(NEW_SETTING, mode.defaultSetting());
+        saves = SaveQueue.forPath(saved().getAbsolutePath());
+        saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
+                : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post, ex -> Log.e("Puzzle", "Game commit failed", ex));
+        saveSession.attach(this);
+        if (state != null) replacementSave = state.getByteArray("replacementSave");
         if (!mode.supports(newSetting)) { Log.e("Puzzle", "Unsupported new puzzle setting"); finish(); return; }
         if (android.os.Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::showMenu);
@@ -115,20 +131,12 @@ public final class PuzzleActivity extends Activity {
         open();
     }
 
-    private AtomicFile saved() { return new AtomicFile(new File(getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin")); }
+    private File saved() { return new File(getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin"); }
 
     static PuzzleProgress readProgress(Context context, Mode mode) throws IOException {
-        AtomicFile file = new AtomicFile(new File(context.getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin"));
-        if (!file.getBaseFile().exists() && !new File(file.getBaseFile() + ".bak").exists()) return null;
-        try (java.io.InputStream in = file.openRead()) {
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            byte[] block = new byte[1024]; int count;
-            while ((count = in.read(block)) != -1) {
-                if (bytes.size() + count > PuzzleStore.MAX_SAVE_BYTES) throw new IOException("Puzzle save is too large.");
-                bytes.write(block, 0, count);
-            }
-            return PuzzleStore.decodeProgress(mode, bytes.toByteArray());
-        }
+        File file = new File(context.getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin");
+        byte[] bytes = AndroidSaveFile.read(file, PuzzleStore.MAX_SAVE_BYTES);
+        return bytes == null ? null : PuzzleStore.decodeProgress(mode, bytes);
     }
 
     private void open() {
@@ -136,12 +144,17 @@ public final class PuzzleActivity extends Activity {
         pending = worker.submit(() -> {
             try {
                 PuzzleProgress result = readProgress(this, mode);
+                boolean replacementCommitted = result != null && replacementSave != null
+                        && java.util.Arrays.equals(replacementSave, PuzzleStore.encode(result));
                 handler.post(() -> {
                     if (isDestroyed()) return;
                     busy = false; loadFailed = false; progress = result; game = result == null ? null : result.game;
                     playTime.restore(result == null ? 0 : result.elapsedMillis);
+                    durableElapsed = result == null ? 0 : result.elapsedMillis;
                     if (game != null && selected >= game.size() * game.size()) selected = -1;
-                    if (newRequested) { newRequested = false; generate(); }
+                    if (replacementCommitted) newRequested = false;
+                    saveSession.ready();
+                    if (newRequested) generate();
                     else if (game == null) generate(); else { showBoard(); refresh(null); }
                 });
             } catch (IOException ex) {
@@ -149,7 +162,8 @@ public final class PuzzleActivity extends Activity {
                 handler.post(() -> {
                     if (isDestroyed()) return;
                     busy = false; loadFailed = true;
-                    if (newRequested) { newRequested = false; generate(); }
+                    saveSession.ready();
+                    if (newRequested) generate();
                     else refresh("Saved progress could not be read. It has not been replaced. Retry, or choose New puzzle to replace it.");
                 });
             }
@@ -167,26 +181,31 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void generate() {
+        if (saveSession.defer(PuzzleActivity::generate)) return;
+        newRequested = true;
         playTime.setRunning(false); checkpointTime();
+        if (feedback != null) feedback.stop();
         if (completion != null) completion.stop();
         busy = true; generationFailed = false; refresh("Creating a fresh puzzle...");
         pending = worker.submit(() -> {
             try {
                 Puzzle created = mode.generate(newSetting, new Random(), new Generation());
+                byte[] createdSave = PuzzleStore.encode(created);
                 handler.post(() -> {
                     if (isDestroyed()) return;
                     busy = false;
                     PuzzleProgress fresh = new PuzzleProgress(created);
-                    if (persist(fresh)) {
-                        progress = fresh; game = created; loadFailed = false;
-                        playTime.restore(0);
-                        selected = -1; binaryArmed = -1; showBoard(); refresh(null);
-                    }
-                    else { generationFailed = true; retry.setVisibility(View.VISIBLE); }
+                    replacementSave = createdSave;
+                    persist(fresh, owner -> {
+                        owner.newRequested = false; owner.replacementSave = null;
+                        owner.progress = fresh; owner.game = created; owner.loadFailed = false;
+                        owner.playTime.restore(0);
+                        owner.selected = -1; owner.binaryArmed = -1; owner.showBoard(); owner.refresh(null);
+                    });
                 });
             } catch (CancellationException ex) {
                 // Lifecycle destruction cancels only this generation, leaving its previous save intact.
-            } catch (IllegalStateException ex) {
+            } catch (IllegalStateException | IOException ex) {
                 Log.e("Puzzle", "Could not generate " + mode, ex);
                 handler.post(() -> {
                     if (isDestroyed()) return;
@@ -196,23 +215,26 @@ public final class PuzzleActivity extends Activity {
         });
     }
 
-    private boolean persist(PuzzleProgress next) {
-        AtomicFile file = saved(); FileOutputStream stream = null;
-        try {
-            byte[] data = PuzzleStore.encode(next);
-            stream = file.startWrite(); stream.write(data); stream.flush(); file.finishWrite(stream);
-            return true;
-        } catch (IOException ex) {
-            file.failWrite(stream);
-            Log.e("Puzzle", "Could not save " + mode, ex);
-            refresh("Could not save. Check device storage and try again. Your previous progress is unchanged.");
-            return false;
-        }
+    private void persist(PuzzleProgress next, java.util.function.Consumer<PuzzleActivity> success) {
+        saveSession.commit(() -> write(next), success, (owner, ex) -> {
+            if (owner.newRequested) owner.generationFailed = true;
+            owner.saveError(ex);
+        });
     }
-
+    private void write(PuzzleProgress next) throws IOException {
+        saveFileFactory.apply(saved()).commit(PuzzleStore.encode(next));
+        durableElapsed = next.elapsedMillis;
+        savedRevision++;
+    }
+    private void saveError(IOException ex) {
+        Log.e("Puzzle", "Could not save " + mode, ex);
+        refresh("Could not save. Pending changes were not applied. Check device storage and try again. Your previous progress is unchanged.");
+    }
     private void change(Function<Puzzle, String> action) {
+        if (saveSession.defer(owner -> owner.change(action))) return;
         if (busy || game == null || game.solved() || game.lost()) return;
         minesFeedback.stop();
+        feedback.stop();
         playTime.setRunning(false);
         Puzzle next = game.copy();
         String error = action.apply(next);
@@ -220,30 +242,40 @@ public final class PuzzleActivity extends Activity {
         PuzzleProgress current = progress.withElapsed(playTime.elapsedMillis());
         PuzzleProgress edited = current.edited(next);
         if (edited == current) { refresh(null); return; }
-        if (persist(edited)) {
-            Puzzle before = game;
-            progress = edited; game = next; refresh(null);
-            if (next instanceof Minesweeper) minesFeedback.changed((Minesweeper) before, (Minesweeper) next, cells);
-            if (next.solved()) completion.celebrate();
-        }
+        Puzzle before = game;
+        PuzzleActivity origin = this;
+        persist(edited, owner -> {
+            if (next.solved() || next.lost()) owner.playTime.restore(edited.elapsedMillis);
+            owner.progress = edited; owner.game = next; owner.refresh(null);
+            if (owner == origin && owner.resumed && owner.focused && next instanceof Minesweeper)
+                owner.minesFeedback.changed((Minesweeper) before, (Minesweeper) next, owner.cells, owner.palette.tint);
+            else if (owner == origin && owner.resumed && owner.focused && !next.solved() && before instanceof UndoablePuzzle && next instanceof UndoablePuzzle)
+                owner.feedback.changed((UndoablePuzzle) before, (UndoablePuzzle) next, owner.cells, owner.paths, owner.loop);
+            if (owner == origin && next.solved() && owner.resumed && owner.focused) owner.completion.celebrate();
+        });
     }
 
     private void undo() {
+        if (saveSession.defer(PuzzleActivity::undo)) return;
         if (busy || progress == null || !progress.canUndo()) return;
+        minesFeedback.stop();
+        feedback.stop();
         playTime.setRunning(false); completion.stop();
         PuzzleProgress previous = progress.withElapsed(playTime.elapsedMillis()).undo();
-        if (persist(previous)) {
-            progress = previous; game = previous.game; selected = -1; binaryArmed = -1;
-            refresh(null); undo.announceForAccessibility("Move undone.");
-        }
+        persist(previous, owner -> {
+            owner.progress = previous; owner.game = previous.game; owner.selected = -1; owner.binaryArmed = -1;
+            owner.refresh(null); if (owner.resumed) owner.undo.announceForAccessibility("Move undone.");
+        });
     }
 
     private void chooseBinary(int value) {
+        if (saveSession.defer(owner -> owner.chooseBinary(value))) return;
         if (busy || !(game instanceof Takuzu) || game.solved()) return;
         selected = -1; binaryArmed = binaryArmed == value ? -1 : value; refresh(null);
     }
 
     private void cell(int cell) {
+        if (saveSession.defer(owner -> owner.cell(cell))) return;
         if (busy || game == null || game.solved() || game.lost()) return;
         if (game instanceof Takuzu) {
             if (((Takuzu) game).clues[cell] >= 0) return;
@@ -263,7 +295,7 @@ public final class PuzzleActivity extends Activity {
                 change(next -> ((Numberlink) next).toggle(previous, cell));
             }
         } else change(next -> {
-            if (next instanceof Nonogram) ((Nonogram) next).cycle(cell);
+            if (next instanceof Nonogram) ((Nonogram) next).mark(cell, 1);
             else if (next instanceof Minesweeper) {
                 Minesweeper mine = (Minesweeper) next;
                 return mine.tap(cell, flag && mine.cells[cell] != 1);
@@ -273,6 +305,7 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void binaryCell(int cell, int digit) {
+        if (saveSession.defer(owner -> owner.binaryCell(cell, digit))) return;
         if (busy || !(game instanceof Takuzu) || game.solved() || ((Takuzu) game).clues[cell] >= 0) return;
         selected = -1;
         change(next -> {
@@ -285,7 +318,18 @@ public final class PuzzleActivity extends Activity {
     private void secondaryCell(int cell) {
         if (!resumed || !focused || busy || game == null || game.solved() || game.lost()) return;
         if (game instanceof Takuzu) binaryCell(cell, 1);
+        else if (game instanceof Nonogram) change(next -> { ((Nonogram) next).mark(cell, 2); return null; });
         else if (game instanceof Minesweeper) change(next -> ((Minesweeper) next).tap(cell, true));
+    }
+
+    private void markEdge(int edge, int mark) {
+        if (!resumed) return;
+        change(next -> { ((Slitherlink) next).mark(edge, mark); return null; });
+    }
+    private void enterFutoshiki(int digit) {
+        if (selected < 0) { if (resumed) status.announceForAccessibility("Select a square."); return; }
+        int target = selected;
+        change(next -> { ((Futoshiki) next).enter(target, digit); return null; });
     }
 
     private void build() {
@@ -322,6 +366,7 @@ public final class PuzzleActivity extends Activity {
                 .setMessage(mode.help).setPositiveButton("Close", null).show());
         heading.addView(help, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ImageButton settings = iconButton("Settings", R.drawable.ic_settings);
+        gameSettingsButton = settings;
         settings.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)
                 .putExtra(MainActivity.OPEN_SETTINGS, true).putExtra(MainActivity.SETTINGS_GAME, mode.name())));
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -385,6 +430,7 @@ public final class PuzzleActivity extends Activity {
         FrameLayout stage = new FrameLayout(this);
         playViewport = new PlayViewport(this, root, dp(wide ? 720 : 360), palette.background);
         stage.addView(ScreenChrome.frame(this, heading, playViewport, palette.background), new FrameLayout.LayoutParams(-1, -1));
+        feedback = new PuzzleFeedback(stage, palette);
         completion = new CompletionFeedback(stage, palette);
         setContentView(stage); stage.requestApplyInsets();
     }
@@ -398,14 +444,15 @@ public final class PuzzleActivity extends Activity {
         binaryGrid = null; mineGrid = null;
         paths = null; loop = null; mineTool = null; edgeChoice = null; loopTool = null; boardArea.removeAllViews();
         if (game instanceof Numberlink) {
-            paths = new NumberlinkBoard(this, palette, this::button, this::cell, drawn -> change(next -> {
-                System.arraycopy(drawn.edges, 0, ((Numberlink) next).edges, 0, drawn.edges.length);
-                selected = -1; return null;
-            }), cellSize(game.size()), game.size());
+            paths = new NumberlinkBoard(this, palette, this::button, this::cell, drawn -> {
+                Numberlink before = ((Numberlink) game).copy();
+                selected = -1;
+                change(next -> ((Numberlink) next).applyChanges(before, drawn));
+            }, cellSize(game.size()), game.size());
             horizontal(paths); return;
         }
         if (game instanceof Slitherlink) {
-            loop = new SlitherlinkBoard(this, palette, edge -> change(next -> { ((Slitherlink) next).cycle(edge); return null; }),
+            loop = new SlitherlinkBoard(this, palette, edge -> markEdge(edge, 1), edge -> markEdge(edge, 2),
                     cellSize(game.size() + 1), game.size());
             horizontal(loop);
             Button clues = button("Clues");
@@ -448,8 +495,17 @@ public final class PuzzleActivity extends Activity {
             edgeChoice.setContentDescription("Choose a loop edge");
             alternatives.addView(edgeChoice, new LinearLayout.LayoutParams(-1, dp(56)));
             loopTool = button("Cycle"); loopTool.setContentDescription("Cycle selected edge");
-            loopTool.setOnClickListener(v -> change(next -> { ((Slitherlink) next).cycle(edgeChoice.getSelectedItemPosition()); return null; }));
+            loopTool.setOnClickListener(v -> {
+                int edge = edgeChoice.getSelectedItemPosition();
+                change(next -> { ((Slitherlink) next).cycle(edge); return null; });
+            });
             alternatives.addView(loopTool);
+            loopLine = button("Line"); loopCross = button("Cross");
+            loopLine.setContentDescription("Enter or clear line on selected edge");
+            loopCross.setContentDescription("Enter or clear cross on selected edge");
+            loopLine.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 1));
+            loopCross.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 2));
+            alternatives.addView(loopLine); alternatives.addView(loopCross);
             return;
         }
         LinearLayout grid = column();
@@ -483,8 +539,9 @@ public final class PuzzleActivity extends Activity {
             for (int c = 0; c < n; c++) {
                 int index = r * n + c; Button square = button("");
                 square.setTextSize(20); square.setTag("cell-" + index); square.setOnClickListener(v -> cell(index));
-                if (game instanceof Minesweeper || game instanceof Takuzu)
-                    BinaryPress.attach(square, game instanceof Minesweeper ? "Toggle flag" : "Enter or clear 1",
+                if (game instanceof Minesweeper || game instanceof Takuzu || game instanceof Nonogram)
+                    BinaryPress.attach(square, game instanceof Minesweeper ? "Toggle flag"
+                                    : game instanceof Nonogram ? "Enter or clear cross" : "Enter or clear 1",
                             () -> secondaryCell(index));
                 cells.add(square); line.addView(square, new LinearLayout.LayoutParams(cellSize, cellSize));
                 if (game instanceof Futoshiki && c < n - 1) {
@@ -516,8 +573,7 @@ public final class PuzzleActivity extends Activity {
                 key.setTag("digit-" + value);
                 futoKeys.add(key);
                 key.setOnClickListener(v -> {
-                    if (selected < 0) { key.announceForAccessibility("Select a square."); return; }
-                    change(next -> { ((Futoshiki) next).enter(selected, digit); return null; });
+                    saveSession.dispatch(owner -> owner.enterFutoshiki(digit));
                 });
                 bank.addView(key, new LinearLayout.LayoutParams(0, -2, 1));
             }
@@ -531,7 +587,7 @@ public final class PuzzleActivity extends Activity {
         if (game instanceof Minesweeper) {
             mineTool = button(""); mineTool.setSingleLine(true); mineTool.setHorizontallyScrolling(false);
             mineTool.setAutoSizeTextTypeUniformWithConfiguration(9, 16, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-            mineTool.setOnClickListener(v -> { flag = !flag; refresh(null); });
+            mineTool.setOnClickListener(v -> saveSession.dispatch(owner -> { owner.flag = !owner.flag; owner.refresh(null); }));
             mineTool.setTag("puzzle-input");
             addBoardControls(mineTool);
         }
@@ -608,6 +664,7 @@ public final class PuzzleActivity extends Activity {
             } else if (game instanceof Nonogram) {
                 int value = ((Nonogram) game).values[i];
                 label = value == 1 ? "\u2713" : value == 2 ? "\u00d7" : ""; meaning = value == 1 ? "filled" : value == 2 ? "crossed empty" : "undecided";
+                meaning += ", tap to fill or clear, hold to cross or clear";
             } else if (game instanceof Futoshiki) {
                 Futoshiki p = (Futoshiki) game; label = p.values[i] == 0 ? "" : "" + p.values[i]; fixed = p.clues[i] != 0;
                 meaning = label.isEmpty() ? "empty" : label;
@@ -686,6 +743,7 @@ public final class PuzzleActivity extends Activity {
                     + (edges[edge] == 1 ? ", line" : edges[edge] == 2 ? ", crossed out" : ", undecided"));
             edgeAdapter.notifyDataSetChanged(); edgeChoice.setSelection(choice);
             edgeChoice.setEnabled(!busy && !terminal); loopTool.setEnabled(!busy && !terminal);
+            loopLine.setEnabled(!busy && !terminal); loopCross.setEnabled(!busy && !terminal);
         }
         if (mineTool != null) {
             String mineAction = (flag ? "Flag mode, switch to reveal" : "Reveal mode, switch to flag") + ". "
@@ -795,12 +853,15 @@ public final class PuzzleActivity extends Activity {
     }
     private void actionSurface(View view, GradientDrawable fill) {
         view.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), fill, null));
+                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), fill,
+                new android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)));
     }
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && feedback != null) feedback.stop();
         if (mode == Mode.TAKUZU && event.getActionMasked() == MotionEvent.ACTION_DOWN
-                && !inside(binaryGrid, event) && !inside(binaryBank, event) && (selected >= 0 || binaryArmed >= 0)) {
+                && !inside(binaryGrid, event) && !inside(binaryBank, event)
+                && !inside(gameSettingsButton, event) && (selected >= 0 || binaryArmed >= 0)) {
             selected = -1; binaryArmed = -1; refresh(null);
         }
         return super.dispatchTouchEvent(event);
@@ -810,6 +871,7 @@ public final class PuzzleActivity extends Activity {
         return view != null && view.getGlobalVisibleRect(bounds) && bounds.contains((int) event.getRawX(), (int) event.getRawY());
     }
     private void showMenu() {
+        newRequested = false;
         if (!getIntent().getBooleanExtra(FROM_MENU, false)) startActivity(new Intent(this, PuzzleMenuActivity.class).putExtra(MODE, mode.name()));
         finish();
     }
@@ -819,8 +881,10 @@ public final class PuzzleActivity extends Activity {
     @Override public void onBackPressed() { showMenu(); }
 
     @Override protected void onSaveInstanceState(Bundle out) {
-        checkpointTime();
+        saveSession.dispatch(PuzzleActivity::checkpointTime);
         super.onSaveInstanceState(out); out.putInt("selected", selected); out.putBoolean("flag", flag); out.putInt("binaryArmed", binaryArmed);
+        out.putBoolean("newRequested", newRequested); out.putInt(NEW_SETTING, newSetting);
+        out.putByteArray("replacementSave", replacementSave);
     }
 
     private void syncTime() {
@@ -834,14 +898,23 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void checkpointTime() {
+        if (saveSession != null && !saveSession.idle()) return;
         if (progress == null) return;
         PuzzleProgress timed = progress.withElapsed(playTime.elapsedMillis());
-        if (timed != progress && persist(timed)) progress = timed;
+        if (timed.elapsedMillis != durableElapsed) {
+            progress = timed;
+            saves.checkpoint(() -> write(timed), ex -> {
+                Log.e("Puzzle", "Timer checkpoint failed for " + mode, ex);
+                long failedRevision = savedRevision;
+                handler.post(() -> { if (!isDestroyed() && savedRevision == failedRevision) saveError(ex); });
+            });
+        }
     }
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
-            syncTime(); checkpointTime();
+            syncTime();
+            if (playTime.elapsedMillis() - durableElapsed >= 10000) checkpointTime();
             if (resumed) handler.postDelayed(this, 1000);
         }
     };
@@ -851,6 +924,8 @@ public final class PuzzleActivity extends Activity {
         focused = hasFocus; syncTime();
         if (!hasFocus) {
             minesFeedback.stop();
+            if (feedback != null) feedback.stop();
+            if (loop != null) loop.cancelPress();
             if (paths != null) paths.cancelDrag();
             checkpointTime();
             if (completion != null) completion.stop();
@@ -864,17 +939,22 @@ public final class PuzzleActivity extends Activity {
 
     @Override protected void onPause() {
         minesFeedback.stop();
+        if (feedback != null) feedback.stop();
+        if (loop != null) loop.cancelPress();
         if (paths != null) paths.cancelDrag();
-        resumed = false; syncTime(); checkpointTime();
+        resumed = false; syncTime(); saveSession.dispatch(PuzzleActivity::checkpointTime);
         handler.removeCallbacks(ticker);
         if (completion != null) completion.stop();
         super.onPause();
     }
 
     @Override protected void onDestroy() {
+        if (saveSession != null) saveSession.detach(this, !isChangingConfigurations());
         minesFeedback.stop();
+        if (feedback != null) feedback.stop();
         if (completion != null) completion.stop();
         if (pending != null) pending.cancel(true);
         worker.shutdownNow(); handler.removeCallbacksAndMessages(null); super.onDestroy();
     }
+    @Override public Object onRetainNonConfigurationInstance() { return new Retained(saveSession); }
 }

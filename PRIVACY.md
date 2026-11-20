@@ -1,6 +1,6 @@
 # Privacy
 
-Effective date: November 17, 2026.
+Effective date: November 20, 2026.
 
 The current Android application ID is `fyi.mllab.puzzle`. It has storage separate
 from the older `com.quietgrid.sudoku` app; old private saves and settings are not
@@ -21,25 +21,17 @@ from bundled data and your device's local date; there is no server check-in.
 Takuzu, Nonograms, Futoshiki, Minesweeper, Numberlink and Slitherlink each store
 their own generated puzzle, progress, and active-play elapsed time in separate private files. Minesweeper
 also saves its local random seed and revealed/flagged squares; the path games save
-drawn edges. Switching games does not replace another game's progress. These
-records are not included in the curated Sudoku collection export.
+drawn edges. Switching games does not replace another game's progress.
 Takuzu, Nonograms, Futoshiki, Numberlink and Slitherlink also keep up to 500 prior
 entry/edge states in the same private save so Undo remains available after restarts.
 The app disables Android cloud backup. Some devices may apply their own
 device-transfer behavior; the app itself does not upload or synchronize data.
 
-The app also stores curated puzzles and local completion/classification records.
-These contain original givens, exact puzzle identities, the difficulty originally
-offered, and an optional Easy/Medium/Hard classification. There is no shared vote
-service. Completion history is used only to avoid repeating curated puzzles.
-
-Export/import is initiated by you through Android's document picker. Exports
-contain the curated collection and local puzzle completion/classification
-records, but not accounts, device identifiers, solve times, notes or current-game
-state. The app does not automatically send them anywhere. A document provider
-or transfer app you choose may have its own storage, network and privacy behavior.
-Choose local device storage and offline file transfer to keep exports offline.
-Imported vote records do not become local completion history.
+New Sudoku puzzles are generated locally. There is no puzzle-rating, curated
+collection or import/export feature. Older installations may retain private
+collection and classification files; this version leaves them untouched and
+does not read, write or use them. A previously imported active puzzle remains
+resumable from the ordinary current-game save.
 
 Clearing app storage or uninstalling removes the locally stored app data.
 Installing a compatible update with the same signing certificate preserves it.

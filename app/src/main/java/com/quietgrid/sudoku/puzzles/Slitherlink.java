@@ -46,6 +46,10 @@ public final class Slitherlink implements UndoablePuzzle {
     @Override public Slitherlink copy() { return new Slitherlink(layout, clues, edges); }
     @Override public boolean solved() { return valid(layout, clues, edges); }
     public void cycle(int edge) { if (!solved()) edges[edge] = (edges[edge] + 1) % 3; }
+    public void mark(int edge, int mark) {
+        if (mark != 1 && mark != 2) throw new IllegalArgumentException("Expected line or cross.");
+        if (!solved()) edges[edge] = edges[edge] == mark ? 0 : mark;
+    }
     public static final class Errors {
         public final String[] edges, cells;
         private Errors(int edgeCount, int cellCount) { edges = new String[edgeCount]; cells = new String[cellCount]; }

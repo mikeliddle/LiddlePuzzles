@@ -14,7 +14,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.util.AtomicFile;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -36,11 +35,7 @@ import android.widget.TextView;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Locale;
@@ -60,13 +55,23 @@ public final class MainActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Button[] bank = new Button[9];
     private Game game;
+    private Game committedGame;
+    private boolean settingsOnly;
+    private SaveSession<MainActivity> saveSession;
+    private static final java.util.concurrent.ConcurrentHashMap<String, Long> bestTimes = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final class Retained {
+        final SaveSession<MainActivity> session;
+        Retained(SaveSession<MainActivity> session) { this.session = session; }
+    }
+    java.util.function.Function<File, DurableFile> saveFileFactory = AndroidSaveFile::at;
     private BoardView board;
     private TextView clock;
-    private ImageButton undoButton, eraseButton;
+    private ImageButton undoButton, eraseButton, gameSettingsButton;
     private Button notesButton;
     private Palette palette;
     private Screen screen = Screen.HUB, settingsReturn = Screen.HUB;
     private String settingsGame;
+    private boolean settingsFromGlobal;
     private boolean resumed, loading, saveFailed;
     private Future<?> generation;
     private long startedAt;
@@ -82,11 +87,6 @@ public final class MainActivity extends Activity {
     private int generationSerial;
     private Sudoku.Difficulty requestedDifficulty;
     private SharedPreferences preferences;
-    private PuzzleLibrary library;
-    private boolean transferBusy, libraryOpening;
-    private Future<?> documentTransfer;
-    private int transferSerial;
-    private static final int EXPORT_PUZZLES = 41, IMPORT_PUZZLES = 42;
 
     static final class Palette {
         final int background, surface, ink, muted, accent, primary, onPrimary, tint, peer, line, error, errorFill;
@@ -139,10 +139,13 @@ public final class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         preferences = getSharedPreferences("settings", MODE_PRIVATE);
+        settingsOnly = getIntent().getBooleanExtra(OPEN_SETTINGS, false);
+        SaveQueue saves = SaveQueue.forPath(savedGame().getAbsolutePath());
+        saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
+                : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
+                        ex -> Log.e("Sudoku", "Game commit failed", ex));
+        saveSession.attach(this);
         migrateColor();
-        String restoreError = restore();
-        migrateAutoNotes();
-        recordBestSolve();
         if (getIntent().getBooleanExtra(OPEN_SETTINGS, false)) {
             screen = Screen.SETTINGS;
             settingsGame = getIntent().getStringExtra(SETTINGS_GAME);
@@ -155,9 +158,8 @@ public final class MainActivity extends Activity {
             screen = Screen.valueOf(state.getString("screen", Screen.HUB.name()));
             settingsReturn = Screen.valueOf(state.getString("settingsReturn", Screen.HUB.name()));
             settingsGame = state.getString(SETTINGS_GAME);
+            settingsFromGlobal = state.getBoolean("settingsFromGlobal");
         }
-        if (screen == Screen.PLAY && (game == null || game.won())) screen = Screen.MENU;
-        if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
         render(false);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -165,16 +167,22 @@ public final class MainActivity extends Activity {
         }
         Sudoku.Difficulty restart = state != null && state.containsKey("generating")
                 ? Sudoku.Difficulty.valueOf(state.getString("generating")) : null;
-        loadLibrary(restart);
-        if (state != null && state.getBoolean("transferBusy")) {
-            puzzleError("Puzzle transfer interrupted",
-                    "Please select the document again to retry. An interrupted export may leave an incomplete document; discard it before retrying.");
-        }
-        if (restoreError != null) {
-            new AlertDialog.Builder(this).setTitle("Saved game could not be opened")
-                    .setMessage(restoreError + "\nChoose a difficulty to create a fresh puzzle.")
-                    .setPositiveButton("OK", null).show();
-        }
+        if (settingsOnly) saveSession.ready();
+        else worker.execute(() -> {
+            String restoreError = restore();
+            handler.post(() -> {
+                if (isDestroyed()) return;
+                migrateAutoNotes(); recordBestSolve();
+                if (screen == Screen.PLAY && game == null) screen = Screen.MENU;
+                else if (screen == Screen.PLAY && game.won()) screen = Screen.WIN;
+                if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
+                render(false); saveSession.ready();
+                if (restart != null) generate(restart);
+                if (restoreError != null) new AlertDialog.Builder(this).setTitle("Saved game could not be opened")
+                        .setMessage(restoreError + "\nChoose a difficulty to create a fresh puzzle.")
+                        .setPositiveButton("OK", null).show();
+            });
+        });
     }
 
     private void updatePalette() {
@@ -216,7 +224,9 @@ public final class MainActivity extends Activity {
         board = null; clock = null;
         Arrays.fill(bank, null);
         updatePalette();
-        if (screen == Screen.PLAY) buildGame();
+        if (game == null && (screen == Screen.PLAY || screen == Screen.WIN))
+            addCopy(root(false), "Opening saved puzzle...", 24, palette.ink, 0);
+        else if (screen == Screen.PLAY) buildGame();
         else if (screen == Screen.SETTINGS) buildSettings();
         else if (screen == Screen.WIN) buildWin(animateWin);
         else if (screen == Screen.HUB) buildHub();
@@ -316,14 +326,13 @@ public final class MainActivity extends Activity {
         for (Sudoku.Difficulty difficulty : Sudoku.Difficulty.values()) {
             Button start = button(difficulty.label, false);
             PuzzleChoices.style(start, palette, false);
-            long best = preferences.getLong(bestTimeKey(difficulty), -1);
+            long best = bestTime(bestTimeKey(difficulty));
             if (best >= 0) {
                 start.setContentDescription(difficulty.label + ". Best solve time: " + time(best));
             }
             start.setGravity(Gravity.CENTER);
             start.setPadding(dp(16), 0, dp(16), 0);
             start.setOnClickListener(v -> requestNewGame(difficulty));
-            start.setEnabled(library != null);
             addControl(content, start, 56, 12);
         }
         if (saveFailed) addCopy(content, getString(R.string.save_error), 14, palette.error, 0);
@@ -335,6 +344,7 @@ public final class MainActivity extends Activity {
         board = new BoardView(this, palette);
         board.setOnSelectionChanged(this::changed);
         board.setOnEntryChanged(this::changed);
+        bindDispatcher(board);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         if (landscape) {
@@ -362,6 +372,7 @@ public final class MainActivity extends Activity {
         large.setOnClickListener(v -> openLargeControls());
         header.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ImageButton settings = navigationButton("Settings", R.drawable.ic_settings);
+        gameSettingsButton = settings;
         settings.setOnClickListener(v -> openSettings());
         header.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         panel.addView(header);
@@ -381,25 +392,26 @@ public final class MainActivity extends Activity {
         LinearLayout tools = row();
         undoButton = iconButton("Undo", R.drawable.ic_undo);
         undoButton.setOnClickListener(v -> {
-            board.clearEntryFeedback();
-            if (game.undo()) {
-                persistPreference(autoNotesKey(game.difficulty), game.autoNotes);
-                changed();
-                announce("Move undone");
-            }
+            saveSession.dispatch(owner -> {
+                if (owner.game.undo()) owner.changed(value -> {
+                    value.persistPreference(autoNotesKey(value.game.difficulty), value.game.autoNotes);
+                    if (value.resumed && value.screen == Screen.PLAY) value.announce("Move undone");
+                });
+            });
         });
         eraseButton = iconButton("Erase", R.drawable.ic_erase);
-        eraseButton.setOnClickListener(v -> { board.clearEntryFeedback(); if (game.clear()) changed(); });
+        eraseButton.setOnClickListener(v -> saveSession.dispatch(owner -> { if (owner.game.clear()) owner.changed(); }));
         notesButton = button("Notes", false);
         notesButton.setTag("notes-toggle");
         notesButton.setSingleLine(true);
         notesButton.setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         notesButton.setHorizontallyScrolling(false);
         notesButton.setOnClickListener(v -> {
-            board.clearEntryFeedback();
-            game.setNoteMode(!game.noteMode);
-            changed();
-            announce(game.noteMode ? "Notes mode" : "Number entry mode");
+            saveSession.dispatch(owner -> {
+                owner.game.setNoteMode(!owner.game.noteMode);
+                owner.changed(value -> { if (value.resumed && value.screen == Screen.PLAY)
+                    value.announce(value.game.noteMode ? "Notes mode" : "Number entry mode"); });
+            });
         });
         for (View tool : new View[]{undoButton, eraseButton, notesButton}) {
             tool.setPadding(dp(16), dp(16), dp(16), dp(16));
@@ -441,29 +453,25 @@ public final class MainActivity extends Activity {
                 && !board.containsBoardPoint(event.getRawX(), event.getRawY())) {
             boolean bankTap = false;
             for (Button button : bank) bankTap |= hit(button, event);
-            boolean inputControl = hit(notesButton, event) || bankTap;
+            boolean inputControl = hit(notesButton, event) || bankTap || hit(gameSettingsButton, event);
             boolean disabledBankTap = false;
             for (Button button : bank) disabledBankTap |= hit(button, event) && !button.isEnabled();
             if (disabledBankTap && event.getAction() == MotionEvent.ACTION_DOWN && game.selected != -1) {
-                game.selected = -1;
-                changed();
+                saveSession.dispatch(owner -> { if (owner.game != null) { owner.game.selected = -1; owner.changed(); } });
             }
             outside = !inputControl;
             if (outside && event.getAction() == MotionEvent.ACTION_DOWN && game.armedDigit != 0) {
-                game.armedDigit = 0;
-                changed();
+                saveSession.dispatch(owner -> { if (owner.game != null) { owner.game.armedDigit = 0; owner.changed(); } });
             }
             if (outside && event.getAction() == MotionEvent.ACTION_DOWN) board.clearEntryFeedback();
         }
         boolean handled = super.dispatchTouchEvent(event);
         if (outside && event.getAction() == MotionEvent.ACTION_UP) {
-            Game tappedGame = game;
             // Button clicks are posted by View; let Erase/Undo use their target first.
             handler.post(() -> {
-                if (screen == Screen.PLAY && game == tappedGame && game.selected != -1) {
-                    game.selected = -1;
-                    changed();
-                }
+                if (screen == Screen.PLAY) saveSession.dispatch(owner -> {
+                    if (owner.game != null && owner.game.selected != -1) { owner.game.selected = -1; owner.changed(); }
+                });
             });
         }
         return handled;
@@ -475,17 +483,36 @@ public final class MainActivity extends Activity {
                 && bounds.contains((int) event.getRawX(), (int) event.getRawY());
     }
 
-    private void changed() {
+    private void bindDispatcher(BoardView target) {
+        target.setDispatcher(action -> saveSession.dispatch(owner -> {
+            if (owner.game == null) return;
+            if (owner.board == null) {
+                owner.board = new BoardView(owner, owner.palette);
+                owner.board.setOnSelectionChanged(owner::changed); owner.board.setOnEntryChanged(owner::changed);
+                owner.bindDispatcher(owner.board);
+            }
+            owner.board.setGame(owner.game); action.accept(owner.board);
+        }));
+    }
+    private void changed() { changed(owner -> {}); }
+    private void changed(java.util.function.Consumer<MainActivity> success) {
         updateElapsed();
         game.normalizeArmedDigit();
-        save();
-        if (screen == Screen.PLAY && game.won()) {
-            if (largeControls != null) largeControls.window.dismiss();
-            recordBestSolve();
-            recordCompletion();
-            screen = Screen.WIN;
-            render(true);
-        } else if (screen == Screen.PLAY) refreshGame();
+        Game previous = committedGame == null ? game.copy() : committedGame.copy();
+        MainActivity origin = this;
+        save(owner -> {
+            if (owner.game.won()) {
+                owner.recordBestSolve();
+                if (owner.screen == Screen.PLAY) {
+                    if (owner.largeControls != null) owner.largeControls.window.dismiss();
+                    owner.screen = Screen.WIN; owner.render(owner == origin && owner.resumed);
+                }
+            } else if (owner.screen == Screen.PLAY) {
+                owner.refreshGame();
+                if (owner == origin && owner.resumed && owner.board.hasWindowFocus()) owner.board.committed(previous);
+            }
+            success.accept(owner);
+        });
     }
 
     private void refreshGame() {
@@ -543,21 +570,27 @@ public final class MainActivity extends Activity {
                 LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(0, -2, 1);
                 slot.setMargins(dp(4), dp(4), dp(4), dp(4)); line.addView(number, slot);
                 number.setOnClickListener(v -> {
-                    int oldSelection = game.selected, oldArmed = game.armedDigit;
-                    game.selected = largeTarget; game.armedDigit = 0;
-                    if (game.enter(digit)) changed();
-                    else {
-                        game.selected = oldSelection; game.armedDigit = oldArmed;
-                        largeControls.announce("Cannot enter " + digit + " here. Check this square's value, notes, row, column and box.");
-                    }
+                    int target = largeTarget;
+                    saveSession.dispatch(owner -> {
+                        int oldSelection = owner.game.selected, oldArmed = owner.game.armedDigit;
+                        owner.game.selected = target; owner.game.armedDigit = 0;
+                        if (owner.game.enter(digit)) owner.changed();
+                        else {
+                            owner.game.selected = oldSelection; owner.game.armedDigit = oldArmed;
+                            if (owner.largeControls != null) owner.largeControls.announce("Cannot enter " + digit + " here. Check this square's value, notes, row, column and box.");
+                        }
+                    });
                 });
                 largeDigits[digit - 1] = number;
             }
         }
         largeErase = largeControls.action("Erase", R.drawable.ic_erase);
         largeErase.setOnClickListener(v -> {
-            game.selected = largeTarget; game.armedDigit = 0;
-            if (game.clear()) changed();
+            int target = largeTarget;
+            saveSession.dispatch(owner -> {
+                owner.game.selected = target; owner.game.armedDigit = 0;
+                if (owner.game.clear()) owner.changed();
+            });
         });
         largeNotes = largeControls.action("Notes");
         largeNotes.setOnClickListener(v -> notesButton.performClick());
@@ -602,6 +635,7 @@ public final class MainActivity extends Activity {
 
     private void openSettings() {
         settingsReturn = screen;
+        settingsFromGlobal = false;
         settingsGame = screen == Screen.MENU || screen == Screen.PLAY || screen == Screen.WIN ? "SUDOKU" : null;
         navigate(Screen.SETTINGS);
     }
@@ -612,7 +646,8 @@ public final class MainActivity extends Activity {
         LinearLayout heading = row();
         String pageTitle = settingsGame == null ? "Settings" : settingsGame.equals("SUDOKU") ? "Sudoku"
                 : settingsGame.equals("DAILY_WORD") ? "Daily Word" : com.quietgrid.sudoku.puzzles.Mode.valueOf(settingsGame).title;
-        ImageButton done = navigationButton(settingsGame == null ? "Close settings" : "Back to settings", R.drawable.ic_back);
+        ImageButton done = navigationButton(settingsGame == null ? "Close settings"
+                : settingsFromGlobal ? "Back to settings" : "Back", R.drawable.ic_back);
         done.setOnClickListener(v -> navigateBack());
         heading.addView(done, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView title = text(pageTitle, 26, palette.ink);
@@ -695,22 +730,10 @@ public final class MainActivity extends Activity {
             String id = ids[i];
             Button entry = button(names[i], false); entry.setTag("game-settings-" + id);
             entry.setContentDescription(names[i] + " settings");
-            entry.setOnClickListener(v -> { settingsGame = id; render(false); });
+            entry.setOnClickListener(v -> { settingsGame = id; settingsFromGlobal = true; render(false); });
             addControl(content, entry, 56, 8);
         }
         addCopy(content, getString(R.string.ai_disclosure), 14, palette.muted, 0);
-        addCopy(content, "Puzzle collection", 22, palette.ink, 8);
-        if (library == null) {
-            Button retry = button("Retry", false); retry.setContentDescription("Retry opening puzzle records");
-            retry.setEnabled(!libraryOpening); retry.setOnClickListener(v -> loadLibrary(null));
-            addControl(content, retry, 56, 16);
-        }
-        Button export = button("Export", false); export.setContentDescription("Export puzzle records");
-        export.setEnabled(library != null && !transferBusy); export.setOnClickListener(v -> pickPuzzleDocument(true));
-        addControl(content, export, 56, 8);
-        Button importPuzzles = button("Import", false); importPuzzles.setContentDescription("Import curated collection");
-        importPuzzles.setEnabled(library != null && !transferBusy); importPuzzles.setOnClickListener(v -> pickPuzzleDocument(false));
-        addControl(content, importPuzzles, 56, 0);
     }
 
     private void gameSettings(LinearLayout content) {
@@ -719,7 +742,13 @@ public final class MainActivity extends Activity {
             for (Sudoku.Difficulty difficulty : Sudoku.Difficulty.values()) {
                 Switch auto = toggle(difficulty.label, game != null && game.difficulty == difficulty ? game.autoNotes : autoNotes(difficulty),
                         (view, enabled) -> {
-                            if (game != null && game.difficulty == difficulty) { game.setAutoNotes(enabled); save(); }
+                            if (game != null && game.difficulty == difficulty) {
+                                saveSession.dispatch(owner -> {
+                                    owner.game.setAutoNotes(enabled);
+                                    owner.save(value -> value.persistPreference(autoNotesKey(difficulty), enabled));
+                                });
+                                return;
+                            }
                             persistPreference(autoNotesKey(difficulty), enabled);
                         });
                 auto.setContentDescription("Auto notes: " + difficulty.label);
@@ -729,7 +758,13 @@ public final class MainActivity extends Activity {
             addCopy(content, "Feedback", 22, palette.ink, 12);
             Switch mistakes = toggle("Mistakes", game != null ? game.showMistakes : preferences.getBoolean("showMistakes", false),
                     (view, enabled) -> {
-                        if (game != null) { game.showMistakes = enabled; save(); }
+                        if (game != null) {
+                            saveSession.dispatch(owner -> {
+                                owner.game.showMistakes = enabled;
+                                owner.save(value -> value.persistPreference("showMistakes", enabled));
+                            });
+                            return;
+                        }
                         persistPreference("showMistakes", enabled);
                     });
             mistakes.setContentDescription("Show mistakes");
@@ -757,7 +792,15 @@ public final class MainActivity extends Activity {
     }
 
     private void persistPreference(String key, boolean value) {
-        if (!preferences.edit().putBoolean(key, value).commit()) settingsSaveError();
+        preferencesQueue().commit(() -> {
+            boolean existed = preferences.contains(key), previous = preferences.getBoolean(key, false);
+            if (!preferences.edit().putBoolean(key, value).commit()) {
+                SharedPreferences.Editor rollback = preferences.edit();
+                if (existed) rollback.putBoolean(key, previous); else rollback.remove(key);
+                if (!rollback.commit()) Log.e("Sudoku", "Preference rollback failed");
+                throw new IOException("Could not save gameplay preference");
+            }
+        }, () -> {}, ex -> preferenceError(ex));
     }
 
     private void migrateColor() {
@@ -770,13 +813,31 @@ public final class MainActivity extends Activity {
     private static String autoNotesKey(Sudoku.Difficulty difficulty) { return "autoNotes." + difficulty.name(); }
 
     private static String bestTimeKey(Sudoku.Difficulty difficulty) { return "bestTime." + difficulty.name(); }
+    private long bestTime(String key) { return bestTimes.computeIfAbsent(key, value -> preferences.getLong(value, -1)); }
+    private SaveQueue preferencesQueue() {
+        return SaveQueue.forPath(new File(getFilesDir().getParentFile(), "shared_prefs/settings.xml").getAbsolutePath());
+    }
+    private void preferenceError(IOException ex) {
+        Log.e("Sudoku", "Could not save gameplay record or preference", ex);
+        handler.post(() -> { if (!isDestroyed()) settingsSaveError(); });
+    }
 
     private void recordBestSolve() {
         if (game == null || !game.won() || game.elapsedMillis < 0) return;
         String key = bestTimeKey(game.difficulty);
-        long best = preferences.getLong(key, -1);
-        if ((best < 0 || game.elapsedMillis < best)
-                && !preferences.edit().putLong(key, game.elapsedMillis).commit()) settingsSaveError();
+        bestTime(key);
+        long elapsed = game.elapsedMillis;
+        preferencesQueue().commit(() -> {
+            long best = bestTime(key);
+            if (best >= 0 && elapsed >= best) return;
+            if (!preferences.edit().putLong(key, elapsed).commit()) {
+                SharedPreferences.Editor rollback = preferences.edit();
+                if (best < 0) rollback.remove(key); else rollback.putLong(key, best);
+                if (!rollback.commit()) Log.e("Sudoku", "Could not restore previous best time after record save failure");
+                throw new IOException("Could not save best time");
+            }
+            bestTimes.put(key, elapsed);
+        }, () -> {}, ex -> preferenceError(ex));
     }
 
     private boolean autoNotes(Sudoku.Difficulty difficulty) {
@@ -793,8 +854,10 @@ public final class MainActivity extends Activity {
         }
         if (!editor.commit()) settingsSaveError();
         if (game != null && game.autoNotes != autoNotes(game.difficulty)) {
-            game.setAutoNotes(autoNotes(game.difficulty));
-            save();
+            saveSession.dispatch(owner -> {
+                owner.game.setAutoNotes(owner.autoNotes(owner.game.difficulty));
+                owner.save(value -> {});
+            });
         }
     }
 
@@ -834,12 +897,6 @@ public final class MainActivity extends Activity {
         TextView details = text(game.difficulty.label + "  \u00b7  " + time(game.elapsedMillis), 24, palette.accent);
         details.setGravity(Gravity.CENTER);
         result.addView(details, new LinearLayout.LayoutParams(-1, dp(64)));
-        PuzzleLibrary.Vote vote = library == null ? null : library.vote(game);
-        if (vote != null && vote.classification != null) addCopy(result, vote.classification.label, 18, palette.ink, 8);
-        Button classify = button("Classify", false); classify.setContentDescription("Classify puzzle");
-        classify.setEnabled(library != null);
-        classify.setOnClickListener(v -> chooseClassification());
-        addControl(result, classify, 56, 12);
         Button next = button("Done", true);
         next.setOnClickListener(v -> navigate(Screen.MENU));
         addControl(result, next, 56, 0);
@@ -865,20 +922,21 @@ public final class MainActivity extends Activity {
     }
 
     private void navigate(Screen destination) {
-        if (transferBusy) return;
         updateElapsed();
-        if (game != null && destination != Screen.PLAY && destination != Screen.WIN) game.armedDigit = 0;
-        save();
         screen = destination;
         startedAt = SystemClock.elapsedRealtime();
         render(false);
+        saveSession.dispatch(owner -> {
+            if (owner.game != null && destination != Screen.PLAY && destination != Screen.WIN
+                    && destination != Screen.SETTINGS) owner.game.armedDigit = 0;
+            owner.save(value -> { if (value.screen == Screen.PLAY && value.game != null) value.refreshGame(); });
+        });
     }
 
     private void navigateBack() {
-        if (screen == Screen.SETTINGS && settingsGame != null) {
-            settingsGame = null; render(false); return;
+        if (screen == Screen.SETTINGS && settingsGame != null && settingsFromGlobal) {
+            settingsGame = null; settingsFromGlobal = false; render(false); return;
         }
-        if (transferBusy) return;
         if (screen == Screen.SETTINGS && getIntent().getBooleanExtra(OPEN_SETTINGS, false)) finish();
         else if (screen == Screen.SETTINGS) navigate(settingsReturn);
         else if (screen == Screen.PLAY || screen == Screen.WIN) navigate(Screen.MENU);
@@ -891,9 +949,7 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() { navigateBack(); }
 
     private void generate(Sudoku.Difficulty difficulty) {
-        if (library == null || transferBusy) return;
-        if (!recordCompletion()) return;
-        PuzzleLibrary available = new PuzzleLibrary(library);
+        if (saveSession.defer(owner -> owner.generate(difficulty))) return;
         updateElapsed();
         loading = true;
         requestedDifficulty = difficulty;
@@ -902,7 +958,7 @@ public final class MainActivity extends Activity {
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(24), dp(12), dp(24), dp(12));
         content.addView(new ProgressBar(this), new LinearLayout.LayoutParams(-1, dp(48)));
-        TextView explanation = text("Checking the collection, or generating a unique puzzle with certified logical difficulty.", 15, palette.ink);
+        TextView explanation = text("Generating a unique puzzle with certified logical difficulty.", 15, palette.ink);
         explanation.setPadding(0, dp(16), 0, dp(8));
         content.addView(explanation);
         progressDialog = new AlertDialog.Builder(this).setTitle("Creating " + difficulty.label.toLowerCase(Locale.ROOT))
@@ -914,7 +970,7 @@ public final class MainActivity extends Activity {
         progressDialog.show();
         generation = worker.submit(() -> {
             try {
-                Sudoku.Puzzle puzzle = available.nextPuzzle(difficulty, new SecureRandom());
+                Sudoku.Puzzle puzzle = Sudoku.generate(difficulty, new SecureRandom());
                 handler.post(() -> {
                     if (isDestroyed() || !loading || request != generationSerial) return;
                     progressDialog.dismiss();
@@ -922,9 +978,9 @@ public final class MainActivity extends Activity {
                     if (autoNotes(difficulty)) game.setAutoNotes(true);
                     game.showMistakes = preferences.getBoolean("showMistakes", false);
                     loading = false;
-                    screen = Screen.PLAY;
                     startedAt = SystemClock.elapsedRealtime();
-                    save(); render(false);
+                    Screen origin = screen;
+                    save(owner -> { if (owner.screen == origin) owner.screen = Screen.PLAY; owner.render(false); });
                 });
             } catch (CancellationException ex) {
                 Log.i("Sudoku", "Puzzle generation cancelled");
@@ -941,195 +997,41 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private AtomicFile savedGame() { return new AtomicFile(new File(getFilesDir(), "current-game.bin")); }
+    private File savedGame() { return new File(getFilesDir(), "current-game.bin"); }
 
-    private AtomicFile savedLibrary() { return new AtomicFile(new File(getFilesDir(), "puzzle-library.bin")); }
-
-    private void loadLibrary(Sudoku.Difficulty restart) {
-        if (libraryOpening) return;
-        libraryOpening = true;
-        worker.submit(() -> {
-            try {
-                AtomicFile file = savedLibrary();
-                PuzzleLibrary restored;
-                if (!file.getBaseFile().exists() && !new File(file.getBaseFile() + ".bak").exists()) {
-                    restored = new PuzzleLibrary();
-                } else {
-                    try (DataInputStream in = new DataInputStream(file.openRead())) { restored = PuzzleLibrary.read(in); }
-                }
-                handler.post(() -> {
-                    if (isDestroyed()) return;
-                    libraryOpening = false;
-                    library = restored;
-                    recordCompletion();
-                    render(false);
-                    if (restart != null) generate(restart);
-                });
-            } catch (IOException ex) {
-                Log.e("Sudoku", "Could not open puzzle library", ex);
-                handler.post(() -> {
-                    if (isDestroyed()) return;
-                    libraryOpening = false;
-                    render(false);
-                    puzzleError("Puzzle records could not be opened",
-                            ex.getMessage() + "\nYour records have not been replaced. Check device storage and retry in Settings.");
-                });
-            } catch (CancellationException ex) {
-                Log.i("Sudoku", "Opening puzzle library cancelled");
-            }
-        });
-    }
-
-    private boolean persistLibrary(PuzzleLibrary updated) {
-        AtomicFile file = savedLibrary();
-        FileOutputStream stream = null;
-        try {
-            stream = file.startWrite();
-            DataOutputStream out = new DataOutputStream(stream);
-            updated.write(out); out.flush(); file.finishWrite(stream);
-            library = updated;
-            return true;
-        } catch (IOException ex) {
-            file.failWrite(stream);
-            Log.e("Sudoku", "Could not save puzzle library", ex);
-            puzzleError("Puzzle records could not be saved",
-                    "Check available device storage and retry. Existing records have not been replaced.");
-            return false;
-        }
-    }
-
-    private boolean recordCompletion() {
-        if (game == null || !game.won()) return true;
-        if (library == null) return false;
-        PuzzleLibrary updated = new PuzzleLibrary(library);
-        return !updated.recordCompletion(game) || persistLibrary(updated);
-    }
-
-    private void chooseClassification() {
-        String[] labels = {"Easy", "Medium", "Hard"};
-        PuzzleLibrary.Vote vote = library.vote(game);
-        int selected = vote == null || vote.classification == null ? -1 : vote.classification.ordinal();
-        new AlertDialog.Builder(this).setTitle("How did this puzzle feel?")
-                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
-                    PuzzleLibrary updated = new PuzzleLibrary(library);
-                    updated.classify(game, Sudoku.Difficulty.values()[which]);
-                    if (persistLibrary(updated)) { dialog.dismiss(); render(false); }
-                }).setNegativeButton("Cancel", null).show();
-    }
-
-    @SuppressWarnings("deprecation")
-    private void pickPuzzleDocument(boolean export) {
-        Intent intent = new Intent(export ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType(export ? "application/json" : "*/*");
-        if (export) intent.putExtra(Intent.EXTRA_TITLE, "sudoku-puzzles.json");
-        try { startActivityForResult(intent, export ? EXPORT_PUZZLES : IMPORT_PUZZLES); }
-        catch (android.content.ActivityNotFoundException ex) {
-            Log.e("Sudoku", "No document provider available", ex);
-            puzzleError("Documents unavailable", "Enable an Android document provider to import or export puzzle files.");
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override protected void onActivityResult(int request, int result, Intent data) {
-        super.onActivityResult(request, result, data);
-        if ((request != EXPORT_PUZZLES && request != IMPORT_PUZZLES) || result != RESULT_OK) return;
-        if (data == null || data.getData() == null) {
-            puzzleError("Puzzle transfer failed", "The document provider did not return a document. Please try again.");
-            return;
-        }
-        if (library == null || transferBusy) {
-            puzzleError("Puzzle records unavailable", "Please retry after the puzzle records have opened.");
-            return;
-        }
-        android.net.Uri uri = data.getData();
-        PuzzleLibrary snapshot = new PuzzleLibrary(library);
-        transferBusy = true;
-        int transfer = ++transferSerial;
-        AlertDialog.Builder progressBuilder = new AlertDialog.Builder(this).setTitle(request == IMPORT_PUZZLES
-                ? "Checking collection" : "Exporting puzzles")
-                .setView(new ProgressBar(this)).setCancelable(false);
-        if (request == IMPORT_PUZZLES) {
-            progressBuilder.setNegativeButton("Cancel", (dialog, which) -> {
-                transferSerial++;
-                if (documentTransfer != null) documentTransfer.cancel(true);
-                transferBusy = false;
-                render(false);
-            });
-        }
-        AlertDialog progress = progressBuilder.create();
-        progressDialog = progress;
-        progress.show();
-        documentTransfer = worker.submit(() -> {
-            try {
-                PuzzleLibrary.ImportResult imported = null;
-                if (request == EXPORT_PUZZLES) {
-                    byte[] bytes = snapshot.exportJson().getBytes(StandardCharsets.UTF_8);
-                    try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
-                        if (out == null) throw new IOException("The selected document could not be opened for writing.");
-                        out.write(bytes);
-                    }
-                } else {
-                    try (InputStream in = getContentResolver().openInputStream(uri)) {
-                        if (in == null) throw new IOException("The selected document could not be opened for reading.");
-                        imported = snapshot.importCollection(PuzzleJson.readDocument(in));
-                    }
-                }
-                PuzzleLibrary.ImportResult checked = imported;
-                handler.post(() -> {
-                    if (isDestroyed() || transfer != transferSerial) return;
-                    transferBusy = false; progress.dismiss();
-                    if (checked != null) {
-                        if (!persistLibrary(checked.library)) return;
-                        render(false);
-                        puzzleError("Collection imported", checked.added + " new puzzles; " + checked.duplicates
-                                + " identical duplicates skipped; " + checked.ignoredVotes
-                                + " vote records not imported.\nCompleted puzzle history and your current game are unchanged.");
-                    } else puzzleError("Puzzle records exported", "Saved the collection and local completion/classification records to your chosen document.");
-                });
-            } catch (IOException | IllegalArgumentException | SecurityException ex) {
-                Log.e("Sudoku", "Puzzle document transfer failed", ex);
-                handler.post(() -> {
-                    if (isDestroyed() || transfer != transferSerial) return;
-                    transferBusy = false; progress.dismiss();
-                    puzzleError("Puzzle transfer failed", ex.getMessage()
-                            + "\nNo local records or current game were changed."
-                            + (request == EXPORT_PUZZLES ? "\nThe destination may be incomplete; discard it and export again."
-                            : "\nCheck the document and retry."));
-                });
-            } catch (CancellationException ex) {
-                Log.i("Sudoku", "Puzzle transfer cancelled");
-            }
-        });
-    }
-
-    private void puzzleError(String title, String message) {
-        new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
-    }
-
-    private void save() {
-        if (game == null) return;
-        AtomicFile file = savedGame();
-        FileOutputStream stream = null;
-        try {
-            stream = file.startWrite();
-            DataOutputStream out = new DataOutputStream(stream);
-            game.write(out); out.flush(); file.finishWrite(stream);
-            saveFailed = false;
-        } catch (IOException ex) {
-            file.failWrite(stream);
-            Log.e("Sudoku", "Could not save game", ex);
-            saveFailed = true;
-            new AlertDialog.Builder(this).setTitle("Could not save game")
+    private void save() { saveSession.dispatch(owner -> owner.save(value -> {})); }
+    private void save(java.util.function.Consumer<MainActivity> success) {
+        if (settingsOnly || game == null) { success.accept(this); return; }
+        Game snapshot = game.copy();
+        game = committedGame == null ? null : committedGame.copy();
+        if (board != null) { board.clearEntryFeedback(); board.setGame(game); }
+        saveSession.commit(() -> {
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                snapshot.write(new DataOutputStream(bytes));
+                saveFileFactory.apply(savedGame()).commit(bytes.toByteArray());
+        }, owner -> {
+            long elapsed = owner.game != null && !snapshot.won() && Arrays.equals(owner.game.solution, snapshot.solution)
+                    ? Math.max(snapshot.elapsedMillis, owner.game.elapsedMillis) : snapshot.elapsedMillis;
+            owner.committedGame = snapshot.copy(); owner.game = snapshot.copy(); owner.game.elapsedMillis = elapsed;
+            owner.saveFailed = false;
+            if (owner.board != null) { owner.board.setGame(owner.game); owner.board.acknowledgeInput(); }
+            owner.startedAt = SystemClock.elapsedRealtime(); success.accept(owner);
+        }, (owner, ex) -> {
+            owner.saveFailed = true;
+            if (owner.board != null) owner.board.clearPendingInput();
+            if (owner.board != null && owner.game != null && owner.screen == Screen.PLAY) owner.refreshGame();
+            else owner.render(false);
+            new AlertDialog.Builder(owner).setTitle("Could not save game")
                     .setMessage(R.string.save_error).setPositiveButton("OK", null).show();
-        }
+        });
     }
 
     private String restore() {
-        AtomicFile file = savedGame();
-        if (!file.getBaseFile().exists() && !new File(file.getBaseFile() + ".bak").exists()) return null;
-        try (DataInputStream in = new DataInputStream(file.openRead())) {
-            game = Game.read(in);
+        try {
+            byte[] bytes = AndroidSaveFile.read(savedGame());
+            if (bytes == null) return null;
+            game = Game.read(new DataInputStream(new java.io.ByteArrayInputStream(bytes)));
+            committedGame = game.copy();
             return null;
         } catch (IOException ex) {
             Log.e("Sudoku", "Could not restore saved game", ex);
@@ -1185,20 +1087,21 @@ public final class MainActivity extends Activity {
         out.putString("screen", screen.name());
         out.putString("settingsReturn", settingsReturn.name());
         out.putString(SETTINGS_GAME, settingsGame);
-        out.putBoolean("transferBusy", transferBusy);
+        out.putBoolean("settingsFromGlobal", settingsFromGlobal);
         if (loading && requestedDifficulty != null) out.putString("generating", requestedDifficulty.name());
     }
 
     @Override protected void onDestroy() {
+        saveSession.detach(this, !isChangingConfigurations());
         if (largeControls != null) largeControls.window.dismiss();
         if (generation != null) generation.cancel(true);
-        if (documentTransfer != null) documentTransfer.cancel(true);
         worker.shutdownNow();
         if (progressDialog != null) progressDialog.dismiss();
         if (celebration != null) celebration.stop();
         handler.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
+    @Override public Object onRetainNonConfigurationInstance() { return new Retained(saveSession); }
 
     private LinearLayout row() {
         LinearLayout row = new LinearLayout(this);

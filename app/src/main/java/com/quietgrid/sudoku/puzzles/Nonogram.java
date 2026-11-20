@@ -21,6 +21,10 @@ public final class Nonogram implements UndoablePuzzle {
     @Override public int[] entries() { return values; }
     @Override public Nonogram copy() { return new Nonogram(rows, columns, values); }
     public void cycle(int cell) { if (!solved()) values[cell] = (values[cell] + 1) % 3; }
+    public void mark(int cell, int mark) {
+        if (mark != 1 && mark != 2) throw new IllegalArgumentException("Expected fill or cross.");
+        if (!solved()) values[cell] = values[cell] == mark ? 0 : mark;
+    }
     @Override public boolean solved() {
         int n = size();
         for (int i = 0; i < n; i++) {

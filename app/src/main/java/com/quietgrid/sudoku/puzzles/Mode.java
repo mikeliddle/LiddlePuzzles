@@ -21,7 +21,8 @@ public enum Mode {
     NONOGRAM("Nonograms",
             "Numbers beside a row or above a column describe its filled runs, in order. Separate consecutive runs by at least one empty square. "
             + "A clue of 0 means no filled squares. For example, 2 1 means two filled squares, a gap, then one filled square.\n\n"
-            + "Tap a square to cycle through filled (check mark), crossed empty, and undecided (blank). Match every row and column clue. "
+            + "Tap a square to fill it (check mark), or hold to cross it empty. Repeat the same mark to clear to undecided (blank). "
+            + "Native long-click actions also enter or clear a cross. Match every row and column clue. "
             + "A red dashed clue outline means no placement of its runs fits your current filled and crossed-empty squares. Undecided squares stay unconstrained; an unfinished line alone is not an error. "
             + "The signal concerns the whole row or column, not one particular square, and does not check against a hidden answer. Correcting marks or Undo updates it immediately. "
             + "The menu offers 5x5, 8x8 and 10x10 size-based challenges. Larger does not mean a certified solving-technique difficulty. "
@@ -59,8 +60,8 @@ public enum Mode {
     SLITHERLINK("Slitherlink",
             "Draw exactly one closed loop along the edges between dots. A number inside a square specifies how many of its four sides belong to the loop. "
             + "Blank squares have no count constraint. No branches, loose ends, or separate smaller loops are allowed. For example, a 0 has no line on any side.\n\n"
-            + "Tap an edge to cycle through line, crossed out, and undecided. Crosses are notes, not loop edges. "
-            + "Cell clues lists every numbered or blank square with coordinates. You can also choose any edge from the accessible edge controls below the board. "
+            + "Tap an edge to draw a line, or hold to cross it out. Repeat the same mark to clear it. Crosses are notes, not loop edges. "
+            + "Cell clues lists every numbered or blank square with coordinates. You can also choose any edge from the accessible edge controls below the board and use Line, Cross or Cycle. "
             + "Red lines or clue digits with subtle outline rings mark branches, too many drawn sides for a clue, or a closed loop incompatible with remaining clues or drawn lines. "
             + "An unfinished path alone is not an error. Cell clues and Edge controls retain local reasons in screen-reader descriptions, without visible error paragraphs; correction or Undo updates them. "
             + "Choose 4x4, 6x6 or 8x8 for a fresh uniquely generated loop. These are size choices, not certified human difficulty ratings. Resume keeps the saved size. "

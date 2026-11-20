@@ -510,6 +510,63 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
                 view.getHeight(), bounds.height());
     }
 
+    public void testWordLetterAndAcceptedRowMotion() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z");
+        DailyWordBoard board = (DailyWordBoard) findType(activity.getWindow().getDecorView(), DailyWordBoard.class);
+        assertNotNull(board); assertFalse("Opening is static", board.feedbackActive());
+        tap("A"); assertTrue("Real key touch starts letter settle", board.feedbackActive());
+        PuzzleDeviceTests.motionFrames(getInstrumentation(), "motion-word-letter", board);
+        type("PPLE"); tap("Enter");
+        assertTrue("Accepted row has one staggered settle", board.feedbackActive());
+        assertEquals(1, restored().day(DailyWord.EPOCH).guesses().size());
+        PuzzleDeviceTests.motionFrames(getInstrumentation(), "motion-word-guess", board);
+        assertFalse(board.feedbackActive());
+        tap("B"); tap("L"); tap("Delete");
+        assertTrue("Rapid erase replaces stale letter feedback", board.feedbackActive());
+        assertEquals("b", restored().day(DailyWord.EPOCH).draft());
+        DailyWord.Day before = restored().day(DailyWord.EPOCH);
+        getInstrumentation().runOnMainSync(() -> board.changed(before, before, false, false));
+        assertFalse("Disabled-motion branch keeps static letters", board.feedbackActive());
+        getInstrumentation().runOnMainSync(() -> ((DailyWordActivity) activity).refresh(null));
+        assertFalse("Repaint never replays input", board.feedbackActive());
+        tap("Enter");
+        assertFalse("Rejected submission never celebrates", board.feedbackActive());
+        close(); launchWord(); fixed("2026-11-16T12:00:00Z");
+        DailyWordBoard resumedBoard = (DailyWordBoard) findType(activity.getWindow().getDecorView(), DailyWordBoard.class);
+        assertFalse("Resume never replays input", resumedBoard.feedbackActive());
+        assertEquals("b", restored().day(DailyWord.EPOCH).draft());
+        assertKeyboardLayout();
+    }
+
+    public void testSettingsBackReturnsToWordAndKeepsDraft() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z"); type("BLE");
+        Activity word = activity;
+        for (boolean systemBack : new boolean[]{false, true}) {
+            Instrumentation.ActivityMonitor monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
+            tap("Settings");
+            activity = monitor.waitForActivityWithTimeout(5000); getInstrumentation().removeMonitor(monitor);
+            assertNotNull(activity); getInstrumentation().waitForIdleSync();
+            assertFalse("Settings cancels in-progress letter feedback",
+                    ((DailyWordBoard) findType(word.getWindow().getDecorView(), DailyWordBoard.class)).feedbackActive());
+            assertNotNull(find("Back")); assertNull(find("Back to settings"));
+            long paused = restored().day(DailyWord.EPOCH).elapsedMillis();
+            SystemClock.sleep(1100);
+            assertEquals(paused, restored().day(DailyWord.EPOCH).elapsedMillis());
+            if (systemBack) {
+                monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
+                getInstrumentation().runOnMainSync(() -> activity.recreate());
+                activity = monitor.waitForActivityWithTimeout(5000); getInstrumentation().removeMonitor(monitor);
+                assertNotNull(activity); getInstrumentation().waitForIdleSync();
+                getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+            } else tap("Back");
+            getInstrumentation().waitForIdleSync(); assertTrue(activity.isFinishing());
+            activity = word; getInstrumentation().waitForIdleSync();
+            assertEquals("ble", restored().day(DailyWord.EPOCH).draft());
+            assertNotNull(find("Enter"));
+        }
+        capture("bugfix-settings-word-return.png");
+    }
+
     private void fixed(String instant) throws Throwable {
         runTestOnUiThread(() -> {
             DailyWordActivity word = (DailyWordActivity) activity;
@@ -553,6 +610,14 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         } finally { down.recycle(); up.recycle(); }
         getInstrumentation().waitForIdleSync();
         SystemClock.sleep(40);
+    }
+
+    private View findType(View view, Class<? extends View> type) {
+        if (type.isInstance(view)) return view;
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) {
+            View child = findType(((ViewGroup) view).getChildAt(i), type); if (child != null) return child;
+        }
+        return null;
     }
 
     private View find(String text) { return find(text, activity.getWindow().getDecorView()); }

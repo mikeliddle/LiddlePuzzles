@@ -215,7 +215,10 @@ under the same budget, not certified human technique tiers. Legacy 4x4 bytes
 remain compatible; larger definitions include their size, and compact checked
 edge history preserves 500 Undo steps within the existing save cap.
 Futoshiki retains its single certified 4x4 generation configuration.
-Sudoku retains its established certified difficulties. Daily Word stays
+Sudoku retains its established certified generated difficulties; new puzzles
+never come from a curated library. Post-win voting and collection import/export
+are removed. Existing active puzzles, including imported ones, resume unchanged;
+old private library files remain untouched and unused. Daily Word stays
 direct to its single daily/resumed game: no pointless selector or alternative
 answer/difficulty. Persist choices for new puzzles; each saved board keeps its
 own configuration independently, including legacy saves and Undo.
@@ -244,7 +247,20 @@ or layout change to teach the gesture. Do not invent holds for unrelated actions
 | --- | --- | --- | --- |
 | Minesweeper | Reveal (or use an explicitly armed Flag tool) | Toggle flag, never reveal on release | Flag tool; named native long-click action |
 | Takuzu, no tool | Enter 0; repeat 0 to clear | Enter 1; repeat 1 to clear | 0/1/Erase tools; named native long-click action |
+| Nonograms | Fill; repeat fill to clear | Cross empty; repeat cross to clear | Named native long-click action, including native keyboard long-click |
+| Slitherlink | Line; repeat line to clear | Cross out; repeat cross to clear | Named virtual-edge actions; native edge selector with Line/Cross/Cycle |
 | Sudoku, digit selected | Enter the selected digit, respecting the explicit Notes mode | Toggle that digit's note without changing the persistent Notes mode | Notes tool; named virtual-square long-click action and large controls |
+
+Settings Back pops the page actually entered: global Settings -> game settings
+returns to global Settings; a game/menu -> its settings returns directly to that
+same game/menu. Toolbar and Android Back agree, including after recreation.
+Opening settings does not disarm the Sudoku digit or discard board selection.
+
+Mines reveal feedback interpolates only newly revealed squares' opaque fill from
+covered to revealed, with a short bounded flood stagger; never fade the whole
+button/text to translucency. Grid ripples stay clipped to their own squares.
+Flags/loss retain local pulses. Unchanged squares and restored boards never
+replay reveal motion, and interruption settles the final fill immediately.
 
 Tapping a revealed Minesweeper number chords its eight bounded neighbors only
 when the adjacent flag count equals that number. Reveal every covered unflagged
@@ -344,11 +360,26 @@ time. Only a successfully saved new puzzle resets its timer.
 Persist elapsed with the board/history or Word date, never a running timestamp.
 Date rollover starts/resumes that date's own record; revisiting a completed date
 does not restart it. Legacy saves with unknown elapsed begin at zero without
-inventing history or replacing progress. Checkpoint each second and at edits,
-focus/lifecycle boundaries; abrupt termination can lose at most the uncheckpointed
-interval. Clock updates touch only the timer label/description, not the board,
+inventing history or replacing progress. Update clock labels each second; checkpoint
+time-only snapshots about every ten seconds on an ordered, coalescing worker and
+immediately at edits/focus/lifecycle boundaries. Input, navigation, pause and
+recreation never wait for disk. Reads run behind submitted writes on a worker;
+retained input intents advance only after each durable acknowledgement.
+Failed saves cancel dependent pending input and expose retry errors.
+Abrupt termination may lose uncheckpointed or still-queued elapsed time.
+Clock updates touch only the timer label/description, not the board,
 keyboard, scroll or focus. No live-region announcement every second. Sudoku's
 established timer and record behavior remain unchanged by this extension.
+
+All games use an observable synced atomic commit before acknowledging an edit,
+replacement or completion. Best times update only after that save; failed record
+preference commits restore the previous in-memory record and expose an error.
+Failed writes retain the last committed board,
+stop success feedback and expose retryable errors; rollback failures are logged
+explicitly with the original failure. Older timer snapshots cannot overwrite an
+edit, Undo, replacement, terminal result or Word rollover. A confirmed generated
+replacement keeps its requested setting across recreation until commit or explicit
+cancellation. Settings-only hosts never restore/migrate/save unrelated Sudoku.
 
 Respond immediately, then add perceptible weight and settle without blocking
 input. Current accepted Sudoku tuning is a 65% -> 135% -> 100% digit settle over
@@ -367,8 +398,32 @@ rejected/no-op input and Minesweeper/Word loss never celebrate. Cancel the overl
 on navigation, focus loss or lifecycle pause. The steady result remains visible
 when motion is disabled. Do not stack another win effect over this cascade.
 
-Minesweeper also uses short in-cell reveal/flood fades, flag pulses and a
-restrained red mine-hit/reveal cascade. Paint opacity changes only: no board
+The other games acknowledge saved edits locally; marks settle over about 480ms
+and visible-rule milestones sweep over about 900ms. These are transient paint,
+not new success claims or a hidden-answer oracle:
+
+- **Takuzu:** bounded digit/erase outlines; coordinated row/column wave only
+  when the full line obeys balance, triples and uniqueness, without intersecting
+  visible contradictions.
+- **Nonograms:** fill/cross/erase outlines; line wave only when every square is
+  explicitly decided, runs match, and intersecting clues remain feasible.
+  Blank/undecided cells are not silently certified empty.
+- **Futoshiki:** entry/erase outlines; full distinct-number row/column wave
+  only without intersecting duplicate/entered-inequality errors.
+- **Numberlink:** finger tracking stays exact, with no interpolation or delay.
+  After commit, edited edges settle and a newly connected matching pair receives
+  a same-color route pulse. A connected pair does not certify full coverage.
+- **Slitherlink:** local line/cross/erase feedback; newly met visible clue counts
+  receive a bounded clue ring only without current rule errors. Open paths are
+  not celebrated as completed loops.
+- **Daily Word:** typed letters settle within their tiles, deletion contracts an
+  outline, and an accepted guess receives one staggered row settle. Scoring,
+  keyboard state, focus and spoken result update immediately; keyboard repaint
+  and rejected submission never replay it.
+
+Minesweeper retains opaque in-cell reveal/flood fill transitions, flag outlines and a
+restrained red mine-hit/reveal cascade. Text/cells never fade as a whole; pulse
+only an inset paint outline, keeping the red loss state steady. No board
 shake, layout shift, translated/scaled grid or delayed terminal state. Save the
 real move/result and freeze its timer first. Interrupt cleanly on another move,
 focus loss or lifecycle pause; reduced motion shows the same steady result.
@@ -413,8 +468,8 @@ switch rows with unrestricted accessible names/tooltips. Other mode entries
 reuse the exact submenu choices and preference keys for future games only,
 without replacing saves. Daily Word displays its fixed five-letter/six-guess
 configuration; Futoshiki and Numberlink show their existing single size without
-invented toggles. Puzzle collection Export/Import end the settings list, after
-all global/game options and disclosure. No subtitles or decorative explanations.
+invented toggles. Settings ends with the disclosure, without collection transfer
+controls. No subtitles or decorative explanations.
 
 This is an implementation review, not TalkBack or Switch Access certification.
 Native touch, key/focus/node actions and geometry checks complement source

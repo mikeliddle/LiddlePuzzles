@@ -50,19 +50,28 @@ public final class Numberlink implements UndoablePuzzle {
         for (int i = 0; i < endpoints.length; i++) if (part[i] && endpoints[i] != 0) return endpoints[i];
         return 0;
     }
+    public String applyChanges(Numberlink before, Numberlink drawn) {
+        if (!Arrays.equals(endpoints, before.endpoints) || !Arrays.equals(endpoints, drawn.endpoints))
+            return "This path belongs to a different puzzle.";
+        for (int mark = 0; mark <= 1; mark++) for (int edge = 0; edge < edges.length; edge++)
+            if (before.edges[edge] != drawn.edges[edge] && drawn.edges[edge] == mark && edges[edge] != mark) {
+                String error = toggle(grid.a[edge], grid.b[edge]);
+                if (error != null) return error;
+            }
+        return null;
+    }
 
     /** A private prospective path: cancel discards it; release commits one board edit. */
     public static final class Drag {
         public final Numberlink preview;
         private final List<Integer> path = new ArrayList<>();
         private final GridEdges grid;
-        private int label;
         private boolean moved;
 
         private Drag(Numberlink game, int start) {
             preview = game.copy();
             grid = game.grid;
-            label = game.pairAt(start);
+            int label = game.pairAt(start);
             boolean[] part = grid.component(game.edges, start);
             int root = start;
             if (game.endpoints[start] == 0) {
@@ -104,14 +113,12 @@ public final class Numberlink implements UndoablePuzzle {
                 path.remove(path.size() - 1); moved = true;
                 return true;
             }
-            if (path.contains(next) || preview.endpoints[head] != 0 && path.size() > 1
-                    || label != 0 && preview.endpoints[next] != 0 && preview.endpoints[next] != label) return false;
+            if (path.contains(next) || preview.endpoints[head] != 0 && path.size() > 1) return false;
             Numberlink trial = preview.copy();
             trimTail(trial);
             if (grid.degree(trial.edges, next) != 0) return false;
             if (trial.toggle(head, next) != null) return false;
             System.arraycopy(trial.edges, 0, preview.edges, 0, preview.edges.length);
-            if (label == 0 && preview.endpoints[next] != 0) label = preview.endpoints[next];
             path.add(next); moved = true;
             return true;
         }
@@ -139,21 +146,28 @@ public final class Numberlink implements UndoablePuzzle {
         GridEdges grid = endpoints.length == 16 ? GRID : new GridEdges(6);
         if (edges.length != grid.a.length) return false;
         for (int edge : edges) if (edge < 0 || edge > 1) return false;
-        for (int cell = 0; cell < endpoints.length; cell++) if (grid.degree(edges, cell) != (endpoints[cell] == 0 ? 2 : 1)) return false;
         boolean[] seen = new boolean[endpoints.length];
         for (int cell = 0; cell < endpoints.length; cell++) if (!seen[cell]) {
-            boolean[] part = grid.component(edges, cell); int label = 0, count = 0;
-            for (int i = 0; i < endpoints.length; i++) if (part[i]) {
-                seen[i] = true;
-                if (endpoints[i] > 0) {
-                    if (label != 0 && label != endpoints[i]) return false;
-                    label = endpoints[i]; count++;
-                }
-            }
-            if (count != 2) return false;
+            boolean[] part = grid.component(edges, cell);
+            if (!validPairComponent(grid, endpoints, edges, part)) return false;
+            for (int i = 0; i < endpoints.length; i++) if (part[i]) seen[i] = true;
         }
         return true;
     }
+
+    /** One complete matching path; says nothing about coverage or other components. */
+    static boolean validPairComponent(GridEdges grid, int[] endpoints, int[] edges, boolean[] part) {
+        int label = 0, count = 0;
+        for (int cell = 0; cell < endpoints.length; cell++) if (part[cell]) {
+            if (grid.degree(edges, cell) != (endpoints[cell] == 0 ? 2 : 1)) return false;
+            if (endpoints[cell] > 0) {
+                if (label != 0 && label != endpoints[cell]) return false;
+                label = endpoints[cell]; count++;
+            }
+        }
+        return count == 2;
+    }
+
     private static boolean validEndpoints(int[] endpoints) {
         if (endpoints.length != 16 && endpoints.length != 36) return false;
         int[] counts = new int[MAX_PAIRS + 1];

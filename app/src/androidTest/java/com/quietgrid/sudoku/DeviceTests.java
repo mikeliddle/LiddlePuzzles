@@ -32,7 +32,6 @@ public final class DeviceTests extends InstrumentationTestCase {
     private Activity activity;
     private byte[] originalSave;
     private Map<String, ?> originalSettings;
-    private final Map<String, byte[]> originalLibraryFiles = new java.util.LinkedHashMap<>();
 
     @Override protected void setUp() throws Exception {
         super.setUp();
@@ -41,11 +40,6 @@ public final class DeviceTests extends InstrumentationTestCase {
         File file = saveFile();
         originalSave = file.exists() ? Files.readAllBytes(file.toPath()) : null;
         originalSettings = settings().getAll();
-        for (String name : new String[]{"puzzle-library.bin", "puzzle-library.bin.bak", "puzzle-library.bin.new"}) {
-            File library = new File(getInstrumentation().getTargetContext().getFilesDir(), name);
-            originalLibraryFiles.put(name, library.exists() ? Files.readAllBytes(library.toPath()) : null);
-            if (library.exists()) assertTrue(library.delete());
-        }
         assertTrue(settings().edit().clear().commit());
     }
 
@@ -57,11 +51,6 @@ public final class DeviceTests extends InstrumentationTestCase {
             }
             if (originalSave != null) Files.write(saveFile().toPath(), originalSave);
             else if (saveFile().exists()) assertTrue(saveFile().delete());
-            for (Map.Entry<String, byte[]> entry : originalLibraryFiles.entrySet()) {
-                File library = new File(getInstrumentation().getTargetContext().getFilesDir(), entry.getKey());
-                if (entry.getValue() != null) Files.write(library.toPath(), entry.getValue());
-                else if (library.exists()) assertTrue(library.delete());
-            }
             SharedPreferences.Editor editor = settings().edit().clear();
             for (Map.Entry<String, ?> entry : originalSettings.entrySet()) {
                 if (entry.getValue() instanceof Boolean) editor.putBoolean(entry.getKey(), (Boolean) entry.getValue());
@@ -92,13 +81,12 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals("Settings pauses time", pausedTime, saved().elapsedMillis);
         assertTrue(saved().autoNotes);
         capture("sudoku-settings.png");
-        clickText("Back to settings"); clickText("Blue"); clickText("Sudoku settings");
+        clickText("Back"); openGlobalSettings(); clickText("Blue"); closeGlobalSettings(); clickText("Settings");
         assertEquals(4, settings().getInt("accentColor", -1));
         clickText("Show mistakes");
         assertTrue(saved().showMistakes);
         clickText("Show mistakes");
-        clickText("Back to settings");
-        clickText("Close settings");
+        clickText("Back");
         BoardView board = board();
         Game auto = saved();
         int digit = original.solution[target];
@@ -165,8 +153,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         clickText("Auto notes: Easy");
         clickText("Auto notes: Easy");
         assertTrue((saved().visibleNotes(target) & Sudoku.bit(digit)) != 0);
-        clickText("Back to settings");
-        clickText("Close settings");
+        clickText("Back");
         clickNumber(digit);
         Game beforeRotation = saved();
         rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
@@ -277,351 +264,66 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertTrue(rating.remaining > 0);
     }
 
-    public void testClassificationCuratedConsumptionAndMediumPreferences() throws Throwable {
-        Game almost = focused();
-        Sudoku.Puzzle second = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(53002));
-        String firstRow = "{\"id\":\"" + PuzzleLibrary.id(almost.clues) + "\",\"givens\":\""
-                + PuzzleLibrary.givens(almost.clues) + "\",\"difficulty\":\"Easy\"}";
-        String secondRow = "{\"id\":\"" + PuzzleLibrary.id(second.clues) + "\",\"givens\":\""
-                + PuzzleLibrary.givens(second.clues) + "\",\"difficulty\":\"Easy\"}";
-        PuzzleLibrary curated = new PuzzleLibrary().importCollection(
-                "{\"format\":\"quietgrid-sudoku\",\"version\":1,\"puzzles\":[" + firstRow + "," + secondRow + "],\"votes\":[]}").library;
-        File libraryFile = new File(getInstrumentation().getTargetContext().getFilesDir(), "puzzle-library.bin");
-        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(libraryFile))) { curated.write(out); }
-        System.arraycopy(almost.solution, 0, almost.values, 0, 81);
-        int finalCell = firstEmpty(almost);
-        almost.values[finalCell] = 0;
-        almost.elapsedMillis = 183000;
-        write(almost); launch();
-        assertNotNull(findText("Medium"));
-        clickPrefix("Resume ");
-        clickNumber(almost.solution[finalCell]); selectCell(board(), finalCell);
-        SystemClock.sleep(1900);
-        clickText("Classify puzzle");
-        AccessibilityNodeInfo dialogRoot = getInstrumentation().getUiAutomation().getRootInActiveWindow();
-        boolean selected = false;
-        for (AccessibilityNodeInfo node : dialogRoot.findAccessibilityNodeInfosByText("Hard")) {
-            if (node.getText() != null && "Hard".contentEquals(node.getText())) {
-                selected |= node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-            }
-        }
-        assertTrue("Classification uses native dialog choices", selected);
-        getInstrumentation().waitForIdleSync();
-        assertNotNull(findText("Hard")); assertNotNull(findText("Classify"));
-        Game completed = saved();
-        try (DataInputStream in = new DataInputStream(new FileInputStream(libraryFile))) {
-            PuzzleLibrary records = PuzzleLibrary.read(in);
-            assertEquals(Sudoku.Difficulty.HARD, records.vote(completed).classification);
-            assertEquals(Sudoku.Difficulty.FOCUSED, records.vote(completed).offeredDifficulty);
-            assertTrue(Arrays.equals(second.clues, records.nextCurated(Sudoku.Difficulty.FOCUSED).clues));
-        }
-        assertEquals(completed.elapsedMillis, settings().getLong("bestTime.FOCUSED", -1));
-        assertEquals(-1L, settings().getLong("bestTime.HARD", -1));
-        capture("sudoku-classification.png");
-        clickText("Done"); finishActivity(); launch();
-        clickText("Settings");
-        clickText("Back to settings");
-        assertNotNull(findText("Export"));
-        assertNotNull(findText("Import"));
-        clickText("Sudoku settings");
-        clickText("Auto notes: Medium");
-        assertTrue(settings().getBoolean("autoNotes.MEDIUM", false));
-        assertFalse(settings().getBoolean("autoNotes.FOCUSED", true));
-        assertFalse(settings().getBoolean("autoNotes.HARD", true));
-        clickText("Back to settings");
-        clickText("Close settings");
-        clickPrefix("Easy"); waitForGame();
-        assertTrue("Completed first puzzle stays consumed after restart", Arrays.equals(second.clues, saved().clues));
-        finishActivity(); launch(); clickPrefix("Resume ");
-        assertTrue("Resumed second curated puzzle is not consumed", Arrays.equals(second.clues, saved().clues));
-        try (DataInputStream in = new DataInputStream(new FileInputStream(libraryFile))) {
-            assertEquals(1, PuzzleLibrary.read(in).completedCount());
-        }
-    }
-
-    public void testDocumentPickerRoundTripAndAtomicImport() throws Throwable {
-        Sudoku.Puzzle first = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(55001));
-        Sudoku.Puzzle second = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(55002));
-        Sudoku.Puzzle medium = Sudoku.generate(Sudoku.Difficulty.MEDIUM, new Random(55003));
-        Sudoku.Puzzle hard = Sudoku.generate(Sudoku.Difficulty.HARD, new Random(55004));
-        PuzzleLibrary catalog = new PuzzleLibrary().importCollection(collectionJson(
-                catalogRow(first) + "," + catalogRow(second) + "," + catalogRow(medium) + "," + catalogRow(hard))).library;
-        Game completed = new Game(first);
-        System.arraycopy(completed.solution, 0, completed.values, 0, 81);
-        catalog.classify(completed, Sudoku.Difficulty.MEDIUM);
-        writeLibrary(catalog);
-        Game unfinished = new Game(second);
-        unfinished.elapsedMillis = 91000;
-        unfinished.setAutoNotes(true);
-        unfinished.showMistakes = true;
-        unfinished.selected = firstEmpty(unfinished);
-        unfinished.setNoteMode(true);
-        unfinished.enter(unfinished.solution[unfinished.selected]);
-        write(unfinished);
-        launch();
-        byte[] currentBefore = Files.readAllBytes(saveFile().toPath());
-        openGlobalSettings();
-        String filename = "sudoku-validation-" + System.currentTimeMillis() + ".json";
-        String badFilename = filename.replace(".json", "-invalid.json");
-        String conflictFilename = filename.replace(".json", "-conflict.json");
+    public void testGeneratedOnlyKeepsImportedSaveAndIgnoresOldLibrary() throws Throwable {
+        File directory = getInstrumentation().getTargetContext().getFilesDir();
+        Map<String, byte[]> originals = new java.util.LinkedHashMap<>();
+        byte[] sentinel = "obsolete unreadable catalog, deliberately not a valid library".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         try {
-            exportThroughPicker(filename);
-            waitExternalText("Puzzle records exported");
-            capture("sudoku-document-export.png");
-            clickExternal("OK");
-            String exported = shellOutput("cat /sdcard/Download/" + filename);
-            assertEquals("The real document provider wrote the exact interoperable export", catalog.exportJson(), exported);
-            assertTrue("Export leaves the unfinished game byte-for-byte unchanged",
-                    Arrays.equals(currentBefore, Files.readAllBytes(saveFile().toPath())));
-
+            for (String name : new String[]{"puzzle-library.bin", "puzzle-library.bin.bak", "puzzle-library.bin.new"}) {
+                File file = new File(directory, name);
+                originals.put(name, file.exists() ? Files.readAllBytes(file.toPath()) : null);
+                Files.write(file.toPath(), sentinel);
+            }
+            int[] clues = "530070000600195000098000060800060003400803001700020006060000280000419005000080079"
+                    .chars().map(c -> c - '0').toArray();
+            Game imported = new Game(new Sudoku.Puzzle(clues, Sudoku.uniqueSolution(clues), Sudoku.Difficulty.HARD, null));
+            imported.setAutoNotes(true); imported.elapsedMillis = 91000;
+            imported.selected = 2; assertTrue(imported.enter(imported.solution[2]));
+            write(imported); launch(); clickPrefix("Resume ");
+            assertStateEquals(imported, saved()); assertEquals(Sudoku.Difficulty.HARD, saved().difficulty);
+            clickText("Undo"); assertEquals(0, saved().values[2]);
+            assertTrue(saved().visibleNotes(2) != 0);
+            clickText("Menu"); openGlobalSettings();
+            assertNull(findText("Puzzle collection"));
+            assertNull(findNamed(activity.getWindow().getDecorView(), "Import curated collection"));
+            assertNull(findNamed(activity.getWindow().getDecorView(), "Export puzzle records"));
+            clickText("Sudoku settings"); clickText("Auto notes: Medium");
+            assertTrue(settings().getBoolean("autoNotes.MEDIUM", false));
+            clickText("Back to settings"); closeGlobalSettings();
             finishActivity();
-            PuzzleLibrary localHistory = new PuzzleLibrary();
-            localHistory.recordCompletion(completed);
-            writeLibrary(localHistory);
-            launch(); openGlobalSettings();
-            importThroughPicker(filename);
-            waitExternalText("Collection imported");
-            capture("sudoku-document-import.png");
-            clickExternal("OK");
-            PuzzleLibrary imported = readLibrary();
-            assertEquals(4, imported.curatedCount());
-            assertEquals("Local completion survives a collection import", 1, imported.completedCount());
-            assertNull("Another export's classification never replaces the local vote", imported.vote(completed).classification);
-            assertTrue(Arrays.equals(second.clues, imported.nextCurated(Sudoku.Difficulty.FOCUSED).clues));
-            assertTrue(Arrays.equals(medium.clues, imported.nextCurated(Sudoku.Difficulty.MEDIUM).clues));
-            assertTrue(Arrays.equals(hard.clues, imported.nextCurated(Sudoku.Difficulty.HARD).clues));
-            assertTrue(Arrays.equals(currentBefore, Files.readAllBytes(saveFile().toPath())));
-            importThroughPicker(filename);
-            waitExternalText("Collection imported");
-            assertNotNull("Re-import reports duplicates explicitly", externalNode(
-                    "0 new puzzles; 4 identical duplicates skipped; 1 vote records not imported.\nCompleted puzzle history and your current game are unchanged.", null));
-            clickExternal("OK");
-            assertEquals(1, readLibrary().completedCount());
-
-            String beforeFailure = readLibrary().exportJson();
-            exportThroughPicker(badFilename);
-            waitExternalText("Puzzle records exported"); clickExternal("OK");
-            writeDocumentFixture(badFilename, exported.replace("\"version\": 1", "\"version\": 2"));
-            importThroughPicker(badFilename);
-            waitExternalText("Puzzle transfer failed");
-            capture("sudoku-document-rejection.png");
-            clickExternal("OK");
-            assertEquals("Unsupported version rejects atomically", beforeFailure, readLibrary().exportJson());
-            assertTrue(Arrays.equals(currentBefore, Files.readAllBytes(saveFile().toPath())));
-            for (String rejected : new String[]{"{\"format\":", collectionJson(
-                    "{\"id\":\"" + PuzzleLibrary.id(new int[81]) + "\",\"givens\":\""
-                            + PuzzleLibrary.givens(new int[81]) + "\",\"difficulty\":\"Easy\"}")}) {
-                writeDocumentFixture(badFilename, rejected);
-                importThroughPicker(badFilename);
-                waitExternalText("Puzzle transfer failed");
-                clickExternal("OK");
-                assertEquals("Malformed and nonunique documents leave the collection unchanged",
-                        beforeFailure, readLibrary().exportJson());
-                assertTrue(Arrays.equals(currentBefore, Files.readAllBytes(saveFile().toPath())));
-            }
-            Sudoku.Puzzle newEntry = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(55005));
-            String conflicting = collectionJson(catalogRow(newEntry) + "," + catalogRow(first).replace("\"Easy\"", "\"Hard\""));
-            exportThroughPicker(conflictFilename);
-            waitExternalText("Puzzle records exported"); clickExternal("OK");
-            writeDocumentFixture(conflictFilename, conflicting);
-            importThroughPicker(conflictFilename);
-            waitExternalText("Puzzle transfer failed");
-            clickExternal("OK");
-            assertEquals("Conflict rejects atomically through the real document picker", beforeFailure, readLibrary().exportJson());
-            assertTrue(Arrays.equals(currentBefore, Files.readAllBytes(saveFile().toPath())));
-        } finally {
-            shell("rm -f /sdcard/Download/" + filename + " /sdcard/Download/" + badFilename
-                    + " /sdcard/Download/" + conflictFilename);
-        }
-    }
-
-    public void testNativeCuratedAbandonmentExhaustionAndAllTiers() throws Throwable {
-        Sudoku.Puzzle easy = Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(56001));
-        Sudoku.Puzzle medium = Sudoku.generate(Sudoku.Difficulty.MEDIUM, new Random(56002));
-        Sudoku.Puzzle hard = Sudoku.generate(Sudoku.Difficulty.HARD, new Random(56003));
-        writeLibrary(new PuzzleLibrary().importCollection(collectionJson(
-                catalogRow(easy) + "," + catalogRow(medium) + "," + catalogRow(hard))).library);
-        if (saveFile().exists()) assertTrue(saveFile().delete());
-        launch();
-        for (Sudoku.Puzzle puzzle : new Sudoku.Puzzle[]{easy, medium, hard}) {
-            if (savedOrNull() != null && !saved().won()) {
+            System.arraycopy(imported.solution, 0, imported.values, 0, 81);
+            imported.values[2] = 0;
+            imported.selected = -1;
+            write(imported); launch(); clickPrefix("Resume ");
+            clickNumber(imported.solution[2]); selectCell(board(), 2);
+            SystemClock.sleep(1900);
+            assertNotNull(findText("Beautifully solved!"));
+            assertNull(findNamed(activity.getWindow().getDecorView(), "Classify puzzle"));
+            assertEquals(saved().elapsedMillis, settings().getLong("bestTime.HARD", -1));
+            clickText("Done");
+            for (Sudoku.Difficulty tier : Sudoku.Difficulty.values()) {
                 finishActivity();
-                // Only validation fixtures are replaced; never touch the player installation.
-                assertTrue(saveFile().delete());
-                launch();
+                if (saveFile().exists()) assertTrue(saveFile().delete());
+                launch(); clickPrefix(tier.label); waitForGame();
+                Game generated = saved();
+                assertEquals(tier, generated.difficulty);
+                assertEquals(1, Sudoku.solutions(generated.clues, 2));
+                assertFalse(Arrays.equals(clues, generated.clues));
+                assertEquals(tier, Sudoku.classify(generated.clues).difficulty);
             }
-            clickPrefix(puzzle.difficulty.label); waitForGame();
-            assertTrue("Native difficulty selection serves its curated tier", Arrays.equals(puzzle.clues, saved().clues));
-            assertEquals(puzzle.difficulty, saved().difficulty);
-            View menu = findNamed(activity.getWindow().getDecorView(), "Menu");
-            assertNotNull(menu);
-            runTestOnUiThread(() -> assertTrue(menu.performClick()));
-            getInstrumentation().waitForIdleSync();
-            assertEquals(0, readLibrary().completedCount());
-            clickPrefix("Resume ");
-            assertTrue(Arrays.equals(puzzle.clues, saved().clues));
+            finishActivity();
+            for (String name : originals.keySet())
+                assertTrue("Ignored library and recovery files are untouched", Arrays.equals(sentinel,
+                        Files.readAllBytes(new File(directory, name).toPath())));
+        } finally {
+            if (activity != null && !activity.isDestroyed()) finishActivity();
+            for (Map.Entry<String, byte[]> original : originals.entrySet()) {
+                File file = new File(directory, original.getKey());
+                if (original.getValue() == null) {
+                    if (file.exists()) assertTrue(file.delete());
+                } else Files.write(file.toPath(), original.getValue());
+            }
         }
-        finishActivity();
-        assertTrue(saveFile().delete());
-        launch(); clickPrefix("Medium"); waitForGame();
-        Game almost = saved();
-        finishActivity();
-        System.arraycopy(almost.solution, 0, almost.values, 0, 81);
-        int finalCell = firstEmpty(almost);
-        almost.values[finalCell] = 0;
-        almost.elapsedMillis = 61000;
-        write(almost); launch(); clickPrefix("Resume ");
-        clickNumber(almost.solution[finalCell]); selectCell(board(), finalCell);
-        SystemClock.sleep(1900);
-        assertTrue(saved().won());
-        assertEquals(1, readLibrary().completedCount());
-        assertEquals(saved().elapsedMillis, settings().getLong("bestTime.MEDIUM", -1));
-        assertEquals(-1L, settings().getLong("bestTime.FOCUSED", -1));
-        assertEquals(-1L, settings().getLong("bestTime.HARD", -1));
-        assertNull(readLibrary().nextCurated(Sudoku.Difficulty.MEDIUM));
-        clickText("Done"); clickPrefix("Medium"); waitForGame();
-        Game fallback = saved();
-        assertFalse("Exhausted curated tier does not cycle", Arrays.equals(medium.clues, fallback.clues));
-        assertFalse(Sudoku.rate(fallback.clues, false).solved);
-        Sudoku.Rating rating = Sudoku.rate(fallback.clues, true);
-        assertTrue("Native exhaustion falls back to certified Medium generation", rating.solved && rating.nakedSingles > 0);
-        assertEquals(1, readLibrary().completedCount());
-        rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-        capture("sudoku-curation-landscape.png");
-        rotate(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-        capture("sudoku-curation-portrait.png");
-        finishActivity(); launch(); clickPrefix("Resume ");
-        assertTrue(Arrays.equals(fallback.clues, saved().clues));
-        assertEquals(1, readLibrary().completedCount());
-        clickText("Menu"); openGlobalSettings();
-        byte[] beforeImport = Files.readAllBytes(saveFile().toPath());
-        String filename = "sudoku-validation-new-" + System.currentTimeMillis() + ".json";
-        try {
-            exportThroughPicker(filename);
-            waitExternalText("Puzzle records exported"); clickExternal("OK");
-            Sudoku.Puzzle newlyCurated = Sudoku.generate(Sudoku.Difficulty.MEDIUM, new Random(56004));
-            writeDocumentFixture(filename, collectionJson(catalogRow(medium) + "," + catalogRow(newlyCurated)));
-            importThroughPicker(filename);
-            waitExternalText("Collection imported"); clickExternal("OK");
-            assertEquals("Previously completed catalog entries stay consumed on re-import", 1, readLibrary().completedCount());
-            assertTrue("Import preserves the unfinished generated fallback game",
-                    Arrays.equals(beforeImport, Files.readAllBytes(saveFile().toPath())));
-            clickText("Close settings");
-            clickPrefix("Medium"); clickExternal("Replace"); waitForGame();
-            assertTrue("Newly imported unseen entries take priority again",
-                    Arrays.equals(newlyCurated.clues, saved().clues));
-            assertEquals(1, readLibrary().completedCount());
-        } finally { shell("rm -f /sdcard/Download/" + filename); }
-    }
-
-    private Game savedOrNull() throws Exception { return saveFile().exists() ? saved() : null; }
-
-    private String catalogRow(Sudoku.Puzzle puzzle) {
-        return "{\"id\":\"" + PuzzleLibrary.id(puzzle.clues) + "\",\"givens\":\""
-                + PuzzleLibrary.givens(puzzle.clues) + "\",\"difficulty\":\"" + puzzle.difficulty.label + "\"}";
-    }
-
-    private String collectionJson(String rows) {
-        return "{\"format\":\"quietgrid-sudoku\",\"version\":1,\"puzzles\":[" + rows + "],\"votes\":[]}";
-    }
-
-    private void writeLibrary(PuzzleLibrary library) throws Exception {
-        try (DataOutputStream out = new DataOutputStream(new FileOutputStream(
-                new File(getInstrumentation().getTargetContext().getFilesDir(), "puzzle-library.bin")))) {
-            library.write(out);
-        }
-    }
-
-    private PuzzleLibrary readLibrary() throws Exception {
-        getInstrumentation().waitForIdleSync();
-        try (DataInputStream in = new DataInputStream(new FileInputStream(
-                new File(getInstrumentation().getTargetContext().getFilesDir(), "puzzle-library.bin")))) {
-            return PuzzleLibrary.read(in);
-        }
-    }
-
-    private String shellOutput(String command) throws Exception {
-        try (android.os.ParcelFileDescriptor result = getInstrumentation().getUiAutomation().executeShellCommand(command);
-             FileInputStream input = new FileInputStream(result.getFileDescriptor());
-             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) bytes.write(buffer, 0, count);
-            return bytes.toString(java.nio.charset.StandardCharsets.UTF_8.name());
-        }
-    }
-
-    private AccessibilityNodeInfo externalNode(String label, String className) {
-        AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
-        return externalNode(root, label, className);
-    }
-
-    private AccessibilityNodeInfo externalNode(AccessibilityNodeInfo node, String label, String className) {
-        if (node == null) return null;
-        boolean matchesLabel = label == null || node.getText() != null && label.equalsIgnoreCase(node.getText().toString())
-                || node.getContentDescription() != null && label.equalsIgnoreCase(node.getContentDescription().toString());
-        if (matchesLabel && (className == null || className.contentEquals(node.getClassName()))) return node;
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo match = externalNode(node.getChild(i), label, className);
-            if (match != null) return match;
-        }
-        return null;
-    }
-
-    private void waitExternalText(String label) throws Exception {
-        for (int i = 0; i < 100; i++) {
-            getInstrumentation().waitForIdleSync();
-            if (externalNode(label, null) != null) return;
-            SystemClock.sleep(100);
-        }
-        capture("sudoku-picker-failure.png");
-        fail("Android UI did not show: " + label);
-    }
-
-    private void clickExternal(String label) throws Exception {
-        waitExternalText(label);
-        AccessibilityNodeInfo node = externalNode(label, null);
-        while (node != null && !node.getActionList().contains(
-                AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)) node = node.getParent();
-        assertNotNull("Clickable native target: " + label, node);
-        assertTrue("Native click succeeds: " + label, node.performAction(AccessibilityNodeInfo.ACTION_CLICK));
-        getInstrumentation().waitForIdleSync();
-        SystemClock.sleep(250);
-    }
-
-    private void openPickerDownloads() throws Exception {
-        waitExternalText("Show roots");
-        clickExternal("Show roots");
-        clickExternal("Downloads");
-        SystemClock.sleep(500);
-    }
-
-    private void importThroughPicker(String filename) throws Exception {
-        clickText("Import curated collection");
-        openPickerDownloads();
-        clickExternal(filename);
-    }
-
-    private void exportThroughPicker(String filename) throws Exception {
-        clickText("Export puzzle records");
-        openPickerDownloads();
-        AccessibilityNodeInfo name = externalNode(null, "android.widget.EditText");
-        assertNotNull("Android create-document filename field is present", name);
-        android.os.Bundle value = new android.os.Bundle();
-        value.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, filename);
-        assertTrue(name.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, value));
-        clickExternal("Save");
-    }
-
-    private void writeDocumentFixture(String filename, String json) throws Exception {
-        String encoded = java.util.Base64.getEncoder().encodeToString(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        File script = new File(getInstrumentation().getTargetContext().getExternalFilesDir(null), "document-fixture.sh");
-        Files.write(script.toPath(), ("echo " + encoded + " | base64 -d > /sdcard/Download/" + filename)
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        try {
-            assertEquals("", shellOutput("sh " + script.getAbsolutePath()));
-            assertEquals("The exact rejected fixture was written", json, shellOutput("cat /sdcard/Download/" + filename));
-        } finally { assertTrue(script.delete()); }
     }
 
     public void testPersonalBestTimes() throws Throwable {
@@ -672,13 +374,13 @@ public final class DeviceTests extends InstrumentationTestCase {
         openGlobalSettings();
         for (String appearance : new String[]{"Dark", "Light"}) {
             chooseAppearance(appearance);
-            clickText("Close settings");
+            closeGlobalSettings();
             assertNull(findText("Best 3:20")); assertNotNull(findText("Easy"));
             assertNull(findText("Best 6:40")); assertNotNull(findText("Hard"));
             capture("sudoku-best-times-" + appearance.toLowerCase(java.util.Locale.ROOT) + ".png");
             openGlobalSettings();
         }
-        clickText("Close settings");
+        closeGlobalSettings();
         clickPrefix("Easy");
         waitForGame();
         assertFalse(saved().won());
@@ -1100,7 +802,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         recreate();
         assertFalse(saved().autoNotes);
         assertTrue(settings().getBoolean("autoNotes.HARD", false));
-        clickText("Back to settings"); clickText("Close settings"); clickText("Menu");
+        clickText("Back"); clickText("Menu");
         capture("sudoku-consistent-menu.png");
         clickText("Hard"); confirmReplacement(); waitForGame();
         assertEquals(Sudoku.Difficulty.HARD, saved().difficulty);
@@ -1533,7 +1235,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                     getInstrumentation().getTargetContext().getResources().getConfiguration().uiMode
                             & android.content.res.Configuration.UI_MODE_NIGHT_MASK);
             capture("sudoku-appearance-" + (dark ? "dark" : "light") + "-settings.png");
-            clickText("Close settings");
+            closeGlobalSettings();
             assertNotNull(board());
             assertAppAppearance(dark);
             clickText("Sudoku");
@@ -1560,7 +1262,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             capture("sudoku-clean-menu-" + (dark ? "dark" : "light") + ".png");
             openGlobalSettings();
             assertNavigationIcon("Close settings");
-            clickText("Close settings");
+            closeGlobalSettings();
             assertNotNull("Closing menu settings returns to menu", findText("Difficulty"));
             clickText("Easy");
             assertNotNull(getInstrumentation().getUiAutomation().getRootInActiveWindow());
@@ -1823,7 +1525,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                 assertAppAppearance(dark);
                 assertStateEquals(paused, saved());
                 assertEquals(paused.elapsedMillis, saved().elapsedMillis);
-                clickText("Close settings");
+                closeGlobalSettings();
                 clickNumber(2);
                 assertEquals(2, saved().armedDigit);
                 capture("sudoku-color-" + (dark ? "dark-" : "light-") + names[color].toLowerCase(java.util.Locale.ROOT) + ".png");
@@ -2069,11 +1771,11 @@ public final class DeviceTests extends InstrumentationTestCase {
             android.widget.RadioButton system = (android.widget.RadioButton) findText("System");
             android.widget.RadioButton light = (android.widget.RadioButton) findText("Light");
             assertTrue("Enlarged appearance choices reflow rather than squeeze", light.getTop() >= system.getBottom());
-            TextView importControl = (TextView) findText("Import curated collection");
-            assertTrue("Enlarged action copy is not clipped", importControl.getHeight() >= importControl.getLayout().getHeight()
-                    + importControl.getCompoundPaddingTop() + importControl.getCompoundPaddingBottom());
+            TextView gameSettings = (TextView) findNamed(activity.getWindow().getDecorView(), "Slitherlink settings");
+            assertTrue("Enlarged action copy is not clipped", gameSettings.getHeight() >= gameSettings.getLayout().getHeight()
+                    + gameSettings.getCompoundPaddingTop() + gameSettings.getCompoundPaddingBottom());
             capture("puzzles-settings-large-type.png");
-            clickText("Close settings");
+            closeGlobalSettings();
         } finally {
             runTestOnUiThread(() -> activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics()));
         }
@@ -2187,13 +1889,47 @@ public final class DeviceTests extends InstrumentationTestCase {
         try (DataOutputStream out = new DataOutputStream(new FileOutputStream(saveFile()))) { game.write(out); }
     }
 
+    public void testSettingsBackPopsActualOriginAndKeepsArmedInput() throws Throwable {
+        write(focused()); launch(); clickPrefix("Resume ");
+        int digit = saved().solution[firstEmpty(saved())]; clickNumber(digit);
+        Game original = saved();
+        clickText("Settings");
+        long paused = saved().elapsedMillis;
+        assertEquals(digit, saved().armedDigit);
+        recreate();
+        SystemClock.sleep(1100);
+        assertEquals(paused, saved().elapsedMillis);
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        getInstrumentation().waitForIdleSync();
+        assertNotNull(board()); assertStateEquals(original, saved());
+        clickText("Settings"); clickText("Back");
+        assertNotNull(board()); assertEquals(digit, saved().armedDigit);
+        clickText("Sudoku");
+        assertEquals("Ordinary outside taps still disarm", 0, saved().armedDigit);
+        selectCell(board(), firstEmpty(saved()));
+        Game selected = saved();
+        clickText("Settings"); clickText("Back");
+        assertStateEquals(selected, saved());
+        clickText("Sudoku");
+        assertEquals("Ordinary outside taps still deselect", -1, saved().selected);
+        clickText("Menu"); clickText("Settings"); recreate(); clickText("Back");
+        assertNotNull(findText("Difficulty")); assertNull(findText("Colors"));
+        openGlobalSettings();
+        clickText("Sudoku settings"); recreate(); clickText("Back to settings");
+        assertNotNull(findText("Colors"));
+        clickText("Sudoku settings"); recreate();
+        getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+        getInstrumentation().waitForIdleSync(); assertNotNull(findText("Colors"));
+        closeGlobalSettings(); assertNotNull(findText("Difficulty"));
+    }
+
     public void testOrganizedSudokuSettingsAndFixedNavigation() throws Throwable {
         write(focused()); launch();
         ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), getInstrumentation().getTargetContext().getString(R.string.back_to_puzzles)),
                 findNamed(activity.getWindow().getDecorView(), "Settings"));
         clickText("Settings");
         assertNotNull(findText("Auto notes")); assertNull(findText("Colors"));
-        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Back to settings"), null);
+        ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Back"), null);
         boolean wasAuto = saved().autoNotes;
         clickText("Auto notes: Easy");
         assertEquals(!wasAuto, saved().autoNotes);
@@ -2202,21 +1938,35 @@ public final class DeviceTests extends InstrumentationTestCase {
         assertEquals(!wasAuto, ((android.widget.Switch) findNamed(activity.getWindow().getDecorView(), "Auto notes: Easy")).isChecked());
         capture("puzzles-settings-autonotes.png");
         clickText("Auto notes: Easy"); assertEquals(wasAuto, saved().autoNotes);
-        clickText("Back to settings");
+        clickText("Back");
+        assertNotNull(findText("Difficulty"));
+        openGlobalSettings();
         assertNotNull(findText("Colors")); assertNotNull(findNamed(activity.getWindow().getDecorView(), "Daily Word settings"));
-        View imports = findNamed(activity.getWindow().getDecorView(), "Import curated collection");
-        runTestOnUiThread(() -> imports.requestRectangleOnScreen(new Rect(0, 0, imports.getWidth(), imports.getHeight()), true));
+        assertNull(findNamed(activity.getWindow().getDecorView(), "Import curated collection"));
+        assertNull(findNamed(activity.getWindow().getDecorView(), "Export puzzle records"));
+        View lastGame = findNamed(activity.getWindow().getDecorView(), "Slitherlink settings");
+        runTestOnUiThread(() -> lastGame.requestRectangleOnScreen(new Rect(0, 0, lastGame.getWidth(), lastGame.getHeight()), true));
         getInstrumentation().waitForIdleSync();
         ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Close settings"), null);
-        capture("puzzles-settings-collection-last.png");
+        capture("puzzles-settings-generated-only.png");
         rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         ViewportChecks.navigation(activity, findNamed(activity.getWindow().getDecorView(), "Close settings"), null);
-        clickText("Close settings"); clickPrefix("Resume ");
+        closeGlobalSettings(); clickPrefix("Resume ");
         ViewportChecks.all(activity); capture("puzzles-settings-sudoku-navigation.png");
     }
 
+    private boolean globalFromPlay;
     private void openGlobalSettings() {
-        clickText("Settings"); clickText("Back to settings");
+        globalFromPlay = findType(activity.getWindow().getDecorView(), BoardView.class) != null;
+        if (globalFromPlay) clickText("Menu");
+        clickText(getInstrumentation().getTargetContext().getString(R.string.back_to_puzzles));
+        clickText("Settings");
+    }
+
+    private void closeGlobalSettings() {
+        clickText("Close settings");
+        clickText("Sudoku");
+        if (globalFromPlay) clickPrefix("Resume ");
     }
 
     private void launch() {
@@ -2234,7 +1984,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             SystemClock.sleep(50);
             getInstrumentation().waitForIdleSync();
         }
-        fail("Local puzzle records did not open within five seconds");
+        fail("Sudoku difficulty controls did not become available within five seconds");
     }
 
     private void finishActivity() {

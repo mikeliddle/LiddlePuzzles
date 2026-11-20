@@ -19,6 +19,10 @@ final class DailyWordBoard extends LinearLayout {
     private final TextView[][] tiles = new TextView[6][5];
     private final LinearLayout[] rows = new LinearLayout[6];
     private final MainActivity.Palette palette;
+    private android.animation.ValueAnimator feedback;
+    private int animatedRow = -1, animatedColumn = -1;
+    private boolean scoring, erasing;
+    private float progress;
 
     DailyWordBoard(Context context, MainActivity.Palette palette) {
         super(context);
@@ -33,7 +37,32 @@ final class DailyWordBoard extends LinearLayout {
             rows[r] = row;
             addView(row, new LayoutParams(-1, 0, 1));
             for (int c = 0; c < 5; c++) {
-                TextView tile = new TextView(context);
+                final int rowIndex = r, columnIndex = c;
+                TextView tile = new TextView(context) {
+                    private final android.graphics.Paint ink = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                    @Override protected void onDraw(android.graphics.Canvas canvas) {
+                        boolean active = animatedRow == rowIndex && (scoring || animatedColumn == columnIndex);
+                        float phase = scoring ? (progress - columnIndex * .07f) / .72f : progress;
+                        active &= phase >= 0 && phase < 1;
+                        if (active && !android.animation.ValueAnimator.areAnimatorsEnabled()) { stopFeedback(); active = false; }
+                        canvas.save();
+                        if (active && !erasing) {
+                            float settle = 1 - (1 - phase) * (1 - phase);
+                            float scale = 1 + .18f * (float) Math.sin(Math.PI * settle);
+                            canvas.clipRect(0, 0, getWidth(), getHeight());
+                            canvas.scale(scale, scale, getWidth() / 2f, getHeight() / 2f);
+                        }
+                        super.onDraw(canvas); canvas.restore();
+                        if (active) {
+                            ink.setStyle(android.graphics.Paint.Style.STROKE);
+                            ink.setStrokeWidth(dp(2));
+                            ink.setColor(getCurrentTextColor());
+                            ink.setAlpha(Math.round(190 * (1 - phase)));
+                            float inset = Math.min(getWidth(), getHeight()) * (erasing ? .08f + phase * .2f : .08f);
+                            canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset, dp(5), dp(5), ink);
+                        }
+                    }
+                };
                 tile.setGravity(Gravity.CENTER);
                 tile.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
                 tile.setIncludeFontPadding(false);
@@ -50,6 +79,39 @@ final class DailyWordBoard extends LinearLayout {
         rows[row].setFocusableInTouchMode(true);
         rows[row].requestFocus();
     }
+
+    void changed(DailyWord.Day before, DailyWord.Day after, boolean submitted) {
+        changed(before, after, submitted, android.animation.ValueAnimator.areAnimatorsEnabled());
+    }
+
+    void changed(DailyWord.Day before, DailyWord.Day after, boolean submitted, boolean motion) {
+        stopFeedback();
+        if (!motion) return;
+        scoring = submitted; erasing = !submitted && after.draft().length() < before.draft().length();
+        animatedRow = submitted ? after.guesses().size() - 1 : after.guesses().size();
+        animatedColumn = erasing ? after.draft().length() : after.draft().length() - 1;
+        if (animatedRow < 0 || animatedRow >= 6 || !submitted && animatedColumn < 0) { stopFeedback(); return; }
+        feedback = android.animation.ValueAnimator.ofFloat(0, 1);
+        feedback.setDuration(submitted ? 900 : 320);
+        feedback.setInterpolator(new android.view.animation.LinearInterpolator());
+        feedback.addUpdateListener(value -> {
+            progress = (float) value.getAnimatedValue();
+            for (TextView tile : tiles[animatedRow]) tile.invalidate();
+        });
+        feedback.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator value) { stopFeedback(); }
+        });
+        feedback.start();
+    }
+
+    boolean feedbackActive() { return feedback != null; }
+    void stopFeedback() {
+        if (feedback != null) { feedback.removeAllListeners(); feedback.cancel(); feedback = null; }
+        animatedRow = animatedColumn = -1;
+        for (TextView[] row : tiles) for (TextView tile : row) tile.invalidate();
+    }
+
+    @Override protected void onDetachedFromWindow() { stopFeedback(); super.onDetachedFromWindow(); }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int width = resolveSize(dp(320), widthSpec);

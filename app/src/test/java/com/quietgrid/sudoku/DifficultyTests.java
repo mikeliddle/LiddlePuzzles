@@ -180,11 +180,6 @@ public final class DifficultyTests {
                         "Unique Hard is not misrepresented as solved by these rules");
             }
         }
-        Sudoku.Puzzle curated = new PuzzleLibrary.Entry(fixtures[0], Sudoku.Difficulty.HARD).puzzle();
-        check(curated.difficulty == Sudoku.Difficulty.HARD, "Stored curated category is not overwritten by new rating");
-        Sudoku.Puzzle curatedEasy = new PuzzleLibrary.Entry(fixtures[0], Sudoku.Difficulty.FOCUSED).puzzle();
-        check(Arrays.equals(curatedEasy.clues, parse(fixtures[0])),
-                "Sparse curated Easy keeps exact original givens instead of generated-Easy additions");
         int[] unsolvable = parse("900000020070180000000905800003000600050003010207000080060000300000009500400072000");
         check(Sudoku.valid(unsolvable) && independentSolutions(unsolvable.clone(), 1) == 0,
                 "Unsolvable regression has no local duplicate but no solution");

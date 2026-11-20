@@ -63,6 +63,8 @@ public final class PuzzleTests {
         undoProgress();
         timedProgress();
         nonogramContradictions();
+        binaryMarks();
+        visibleMilestones();
         numberlinkDrags();
         puzzleSettings();
         visibleRuleErrors();
@@ -91,6 +93,123 @@ public final class PuzzleTests {
     private static void reject(Mode mode, byte[] bytes) {
         try { PuzzleStore.decode(mode, bytes); throw new AssertionError("Invalid/cross-mode save accepted"); }
         catch (IOException expected) { checks++; }
+    }
+
+    private static void visibleMilestones() {
+        Takuzu binary = Takuzu.generate(6, new Random(11), new Generation());
+        Arrays.fill(binary.values, -1);
+        int[] row = {0, 0, 1, 0, 1, 1};
+        System.arraycopy(row, 0, binary.values, 0, 6);
+        check(PuzzleMilestones.satisfied(binary)[0], "Balanced distinct public-rule line earns a milestone");
+        System.arraycopy(row, 0, binary.values, 6, 6);
+        check(!PuzzleMilestones.satisfied(binary)[0], "Duplicate completed Takuzu rows never celebrate");
+        Arrays.fill(binary.values, 6, 36, -1); binary.values[6] = binary.values[12] = 0;
+        check(!PuzzleMilestones.satisfied(binary)[0], "Intersecting triple suppresses an otherwise balanced line");
+
+        Futoshiki latin = Futoshiki.generate(new Random(190), new Generation());
+        Arrays.fill(latin.values, 0); Arrays.fill(latin.horizontal, 0); Arrays.fill(latin.vertical, 0);
+        for (int i = 0; i < 4; i++) latin.values[i] = i + 1;
+        check(PuzzleMilestones.satisfied(latin)[0], "Distinct complete Latin line follows visible rules only");
+        latin.values[4] = 1;
+        check(!PuzzleMilestones.satisfied(latin)[0], "Intersecting duplicate suppresses Latin milestone");
+        latin.values[4] = 4; latin.vertical[0] = 1;
+        check(!PuzzleMilestones.satisfied(latin)[0], "Broken inequality suppresses Latin milestone");
+
+        Nonogram picture = Nonogram.generate(new Random(12), new Generation());
+        for (int i = 0; i < 5; i++) { picture.rows[i] = new int[]{1}; picture.columns[i] = new int[]{1}; }
+        Arrays.fill(picture.values, 0); picture.values[0] = 1;
+        check(!PuzzleMilestones.satisfied(picture)[0], "Matching fills with unknown empties are not a decided line");
+        Arrays.fill(picture.values, 1, 5, 2);
+        check(PuzzleMilestones.satisfied(picture)[0], "Explicit complete matching runs need no hidden picture");
+        picture.values[5] = 1;
+        check(!PuzzleMilestones.satisfied(picture)[0], "Intersecting infeasible Nonogram column suppresses wave");
+
+        Slitherlink loop = Slitherlink.generate(new Random(119), new Generation());
+        Arrays.fill(loop.clues, -1); Arrays.fill(loop.edges, 0); loop.clues[0] = 1;
+        loop.edges[loop.sides[0][0]] = 1;
+        check(PuzzleMilestones.satisfied(loop)[0] && !loop.solved(), "Met clue count is not a completed open loop");
+        for (int edge : loop.grid.at[1]) loop.edges[edge] = 1;
+        check(!PuzzleMilestones.satisfied(loop)[0], "Branch prevents clue milestone");
+        Arrays.fill(loop.edges, 0); Arrays.fill(loop.clues, -1);
+        for (int edge : loop.sides[0]) loop.edges[edge] = 1;
+        loop.clues[0] = 4; loop.clues[15] = 1;
+        check(!PuzzleMilestones.satisfied(loop)[0], "Premature closed loop never earns a clue wave");
+        Arrays.fill(loop.edges, 0); Arrays.fill(loop.clues, -1); loop.clues[0] = 1;
+        loop.edges[loop.sides[0][0]] = 1;
+        for (int edge : loop.grid.at[18]) loop.edges[edge] = 1;
+        Slitherlink corrected = loop.copy();
+        corrected.edges[loop.grid.at[18][0]] = corrected.edges[loop.grid.at[18][1]] = 0;
+        check(PuzzleMilestones.satisfied(corrected)[0], "Unchanged distant clue remains visibly met after branch correction");
+        check(!PuzzleMilestones.newlySatisfied(loop, corrected)[0], "Error correction never replays unrelated met clues");
+        check(!PuzzleMilestones.newlySatisfied(corrected, corrected.copy())[0], "No-op/redraw never repeats a milestone");
+
+        Numberlink paths = Numberlink.generate(new Random(81), new Generation());
+        Arrays.fill(paths.endpoints, 0); Arrays.fill(paths.edges, 0);
+        for (int i = 0; i < 3; i++) { paths.endpoints[i * 4] = i + 1; paths.endpoints[i * 4 + 3] = i + 1; }
+        for (int i = 0; i < 3; i++) paths.edges[paths.grid.between(i, i + 1)] = 1;
+        check(PuzzleMilestones.satisfied(paths)[1] && !paths.solved(), "Matched connected pair need not cover the whole board");
+        paths.edges[paths.grid.between(1, 5)] = 1;
+        check(!PuzzleMilestones.satisfied(paths)[1], "Branched path does not celebrate");
+        paths.edges[paths.grid.between(1, 5)] = 0; paths.endpoints[3] = 2;
+        check(!PuzzleMilestones.satisfied(paths)[1], "Different numbered endpoints do not celebrate");
+        paths.endpoints[3] = 1;
+        Numberlink beforePair = paths.copy(); beforePair.edges[paths.grid.between(2, 3)] = 0;
+        check(PuzzleMilestones.newlySatisfied(beforePair, paths)[1],
+                "Connecting a public partial pair earns a local milestone without whole-board coverage");
+        Numberlink distantBranch = paths.copy();
+        for (int[] edge : new int[][]{{4, 5}, {5, 6}, {6, 7}, {5, 9}})
+            distantBranch.edges[paths.grid.between(edge[0], edge[1])] = 1;
+        check(PuzzleMilestones.satisfied(distantBranch)[1] && !PuzzleMilestones.satisfied(distantBranch)[2],
+                "An unrelated branched component does not suppress a valid pair");
+        check(!PuzzleMilestones.newlySatisfied(paths, distantBranch)[1],
+                "Distant path edits never replay an unchanged satisfied pair");
+        Numberlink uncovered = paths.copy();
+        for (int[] route : new int[][]{{4, 5, 6, 7}, {8, 9, 10, 11}})
+            for (int i = 1; i < route.length; i++) uncovered.edges[paths.grid.between(route[i - 1], route[i])] = 1;
+        check(!uncovered.solved() && PuzzleMilestones.satisfied(uncovered)[1]
+                        && PuzzleMilestones.satisfied(uncovered)[2] && PuzzleMilestones.satisfied(uncovered)[3],
+                "Every pair can earn a public milestone while uncovered blank cells still prevent completion");
+        Numberlink covered = paths.copy();
+        covered.endpoints[11] = 0; covered.endpoints[12] = 3;
+        for (int[] route : new int[][]{{4, 5, 6, 7}, {8, 9, 10, 11, 15, 14, 13, 12}})
+            for (int i = 1; i < route.length; i++) covered.edges[paths.grid.between(route[i - 1], route[i])] = 1;
+        check(covered.solved() && PuzzleMilestones.satisfied(covered)[1]
+                        && PuzzleMilestones.satisfied(covered)[2] && PuzzleMilestones.satisfied(covered)[3],
+                "Whole coverage and milestones agree on complete matching pair components");
+        Numberlink branched = covered.copy(); branched.edges[paths.grid.between(1, 5)] = 1;
+        check(!branched.solved() && !PuzzleMilestones.satisfied(branched)[1]
+                        && !PuzzleMilestones.satisfied(branched)[2] && PuzzleMilestones.satisfied(branched)[3],
+                "Shared component rules reject branches without suppressing an unrelated pair");
+        Numberlink mismatched = covered.copy(); mismatched.endpoints[3] = 2; mismatched.endpoints[7] = 1;
+        check(!mismatched.solved() && !PuzzleMilestones.satisfied(mismatched)[1]
+                        && !PuzzleMilestones.satisfied(mismatched)[2] && PuzzleMilestones.satisfied(mismatched)[3],
+                "Shared component rules reject mismatched ends even when endpoint counts and coverage are valid");
+    }
+
+    private static void binaryMarks() throws Exception {
+        for (Mode mode : new Mode[]{Mode.NONOGRAM, Mode.SLITHERLINK}) {
+            for (int size : mode.settings()) {
+                Puzzle original = mode.generate(size, new Random(124), new Generation());
+                int last = original instanceof Nonogram ? size * size - 1 : ((Slitherlink) original).edges.length - 1;
+                for (int target : new int[]{0, last}) {
+                    PuzzleProgress progress = new PuzzleProgress(original);
+                    for (int mark : new int[]{1, 1, 2, 1, 2, 2}) {
+                        Puzzle next = progress.game.copy();
+                        int before = next instanceof Nonogram ? ((Nonogram) next).values[target] : ((Slitherlink) next).edges[target];
+                        if (next instanceof Nonogram) ((Nonogram) next).mark(target, mark);
+                        else ((Slitherlink) next).mark(target, mark);
+                        int actual = next instanceof Nonogram ? ((Nonogram) next).values[target] : ((Slitherlink) next).edges[target];
+                        check(actual == (before == mark ? 0 : mark), mode + " repeats clear; alternate marks replace directly");
+                        PuzzleProgress edited = progress.edited(next);
+                        check(edited.undoCount() == progress.undoCount() + 1, "One binary mark is one Undo");
+                        check(Arrays.equals(PuzzleStore.encode(progress.game), PuzzleStore.encode(edited.undo().game)), "Undo restores exact previous mark");
+                        progress = PuzzleStore.decodeProgress(mode, PuzzleStore.encode(edited));
+                        check(Arrays.equals(PuzzleStore.encode(next), PuzzleStore.encode(progress.game)), "Binary marks/history persist");
+                    }
+                    check(Arrays.equals(PuzzleStore.encode(original), PuzzleStore.encode(progress.game)), "Repeat-to-clear returns original board");
+                }
+            }
+        }
     }
 
     private static void timedProgress() throws Exception {
@@ -512,9 +631,35 @@ public final class PuzzleTests {
         check(!drag.moveTo(5) && Arrays.equals(before, drag.preview.edges), "Other path crossing is rejected without damaging either path");
         check(drag.preview.pairAt(1) == 1 && drag.preview.pairAt(5) == 2, "Pair identities follow path connectivity, not redraw order");
         Numberlink loose = board.copy(); loose.toggle(1, 2);
+        int[] looseBefore = loose.edges.clone();
         Numberlink.Drag looseDrag = Numberlink.Drag.begin(loose, 1);
         check(looseDrag != null && looseDrag.moveTo(0), "Existing disconnected tap path can be dragged to acquire its first endpoint");
         check(looseDrag.preview.pairAt(1) == 1, "An initially unnumbered path acquires the connected pair identity");
+        check(looseDrag.moveTo(1) && looseDrag.preview.pairAt(1) == 0,
+                "Retracting an acquired endpoint leaves the surviving loose component unnumbered");
+        check(looseDrag.moveTo(5) && looseDrag.moveTo(4) && looseDrag.preview.pairAt(1) == 2,
+                "One loose-path drag can redirect from a retracted pair-one endpoint to pair two");
+        check(looseDrag.preview.edges[board.grid.between(0, 1)] == 0
+                        && looseDrag.preview.edges[board.grid.between(1, 5)] == 1
+                        && looseDrag.preview.edges[board.grid.between(5, 4)] == 1
+                        && Arrays.equals(loose.edges, looseBefore),
+                "Redirect retains only the surviving route and leaves the original board unchanged");
+        Numberlink.Drag firstPending = Numberlink.Drag.begin(board, 0);
+        firstPending.moveTo(1); firstPending.moveTo(2); firstPending.moveTo(3);
+        Numberlink.Drag secondPending = Numberlink.Drag.begin(board, 4);
+        secondPending.moveTo(5);
+        Numberlink latest = firstPending.preview.copy(), merged = latest.copy();
+        check(merged.applyChanges(board, secondPending.preview) == null
+                        && merged.edges[board.grid.between(0, 1)] == 1 && merged.edges[board.grid.between(4, 5)] == 1,
+                "Rapid queued drags merge only their changes rather than overwriting the prior durable route");
+        PuzzleProgress mergedHistory = new PuzzleProgress(latest).edited(merged);
+        check(Arrays.equals(((Numberlink) mergedHistory.undo().game).edges, latest.edges),
+                "Queued drag Undo restores the actual preceding committed route");
+        Numberlink.Drag conflictingPending = Numberlink.Drag.begin(board, 0);
+        conflictingPending.moveTo(1); conflictingPending.moveTo(5);
+        int[] committedEdges = merged.edges.clone();
+        check(merged.copy().applyChanges(board, conflictingPending.preview) != null && Arrays.equals(committedEdges, merged.edges),
+                "A queued drag that conflicts with a now-committed route cannot publish partial changes");
     }
 
     private static void takuzuLegacyAndErrors() throws Exception {

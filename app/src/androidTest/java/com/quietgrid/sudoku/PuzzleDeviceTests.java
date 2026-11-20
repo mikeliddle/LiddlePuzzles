@@ -693,7 +693,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             double a = android.graphics.Color.luminance(fill), b = android.graphics.Color.luminance(clue.getCurrentTextColor());
             assertTrue("Actual contradiction text contrast", (Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 4.5);
             capture("puzzles-nonogram-errors-" + (look == 1 ? "light" : "dark") + ".png");
-            for (int col = 0; col < 5; col++) tap(square(row * 5 + col));
+            for (int col = 0; col < 5; col++) holdSquare(square(row * 5 + col), false);
             assertTrue("Crossing all cells cannot satisfy a nonempty clue", ((Nonogram) read(mode)).contradictions()[row]);
             int corrected = -1;
             for (int col = 0; col < 5 && ((Nonogram) read(mode)).contradictions()[row]; col++) {
@@ -935,6 +935,12 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             tap(square(27));
             Minesweeper game = (Minesweeper) read(mode);
             int covered = 0; while (game.cells[covered] != 0) covered++;
+            java.lang.reflect.Field feedbackField = PuzzleActivity.class.getDeclaredField("minesFeedback");
+            feedbackField.setAccessible(true);
+            MinesFeedback feedback = (MinesFeedback) feedbackField.get(activity);
+            long deadline = SystemClock.uptimeMillis() + 2000;
+            while (feedback.active() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(16);
+            assertFalse("Opening flood settles to its persistent fill", feedback.active());
             assertFalse("Revealed and covered fills remain visibly different", squareFill(square(27)) == squareFill(square(covered)));
             assertTrue(square(27).getContentDescription().toString().contains("neighboring mines"));
             assertTrue(square(covered).getContentDescription().toString().contains("covered"));
@@ -945,6 +951,395 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             byte[] state = bytes(mode); close(); launch(mode);
             assertTrue(Arrays.equals(state, bytes(mode)));
             assertEquals(2, ((Minesweeper) read(mode)).cells[covered]);
+            close();
+        }
+    }
+
+    public void testNonogramTapHoldClearAndCanceledGestures() throws Exception {
+        Mode mode = Mode.NONOGRAM;
+        write(mode, fixture(mode, "initial")); launch(mode);
+        tap(square(0)); assertEquals(1, ((Nonogram) read(mode)).values[0]);
+        tap(square(0)); assertEquals(0, ((Nonogram) read(mode)).values[0]);
+        holdSquare(square(0), false); assertEquals(2, ((Nonogram) read(mode)).values[0]);
+        assertEquals("Hold release produces one edit only", 3, progress(mode).undoCount());
+        holdSquare(square(0), false); assertEquals(0, ((Nonogram) read(mode)).values[0]);
+        tap(require(findDescription("Undo last move"))); assertEquals(2, ((Nonogram) read(mode)).values[0]);
+        byte[] before = PuzzleStore.encode(read(mode));
+        holdSquare(square(0), true); holdSquare(square(0), 2);
+        assertTrue("Cancel/multitouch never applies either mark", Arrays.equals(before, PuzzleStore.encode(read(mode))));
+        View target = square(0);
+        AccessibilityNodeInfo node = target.createAccessibilityNodeInfo();
+        assertTrue(node.getActionList().stream().anyMatch(a -> a.getId() == AccessibilityNodeInfo.ACTION_LONG_CLICK
+                && "Enter or clear cross".contentEquals(a.getLabel())));
+        getInstrumentation().runOnMainSync(() -> target.performAccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, null));
+        assertEquals(0, ((Nonogram) read(mode)).values[0]);
+        getInstrumentation().runOnMainSync(() -> target.performAccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, null));
+        assertEquals(1, ((Nonogram) read(mode)).values[0]);
+        holdSquare(square(1), false); assertEquals(2, ((Nonogram) read(mode)).values[1]);
+        capture("bugfix-nonogram-tap-hold.png");
+        int undoCount = progress(mode).undoCount();
+        close(); launch(mode);
+        assertEquals(1, ((Nonogram) read(mode)).values[0]);
+        assertEquals(undoCount, progress(mode).undoCount());
+    }
+
+    public void testSlitherlinkBinaryEdgesAllSizesAndInterruptions() throws Exception {
+        Mode mode = Mode.SLITHERLINK;
+        for (int size : mode.settings()) {
+            write(mode, Files.readAllBytes(fixtureFile("SLITHERLINK" + size + "-initial.bin").toPath()));
+            launch(mode);
+            SlitherlinkBoard board = (SlitherlinkBoard) require(find(activity.getWindow().getDecorView(), v -> v instanceof SlitherlinkBoard));
+            int last = ((Slitherlink) read(mode)).edges.length - 1;
+            for (int edge : new int[]{0, last}) {
+                tapSlitherEdge(edge); assertEquals(1, ((Slitherlink) read(mode)).edges[edge]);
+                tapSlitherEdge(edge); assertEquals(0, ((Slitherlink) read(mode)).edges[edge]);
+                pressSlitherEdge(board, edge, 0); assertEquals(2, ((Slitherlink) read(mode)).edges[edge]);
+                int count = progress(mode).undoCount();
+                pressSlitherEdge(board, edge, 0); assertEquals(0, ((Slitherlink) read(mode)).edges[edge]);
+                assertEquals(count + 1, progress(mode).undoCount());
+                tap(require(findDescription("Undo last move"))); assertEquals(2, ((Slitherlink) read(mode)).edges[edge]);
+                for (int interruption : new int[]{1, 2, 3, 4}) {
+                    count = progress(mode).undoCount(); pressSlitherEdge(board, edge, interruption);
+                    assertEquals(2, ((Slitherlink) read(mode)).edges[edge]);
+                    assertEquals("Interruption suppresses hold and release", count, progress(mode).undoCount());
+                }
+                AccessibilityNodeInfo node = board.getAccessibilityNodeProvider().createAccessibilityNodeInfo(edge);
+                assertTrue(node.getActionList().stream().anyMatch(a -> a.getId() == AccessibilityNodeInfo.ACTION_LONG_CLICK
+                        && "Enter or clear cross".contentEquals(a.getLabel())));
+                getInstrumentation().runOnMainSync(() -> board.getAccessibilityNodeProvider()
+                        .performAction(edge, AccessibilityNodeInfo.ACTION_LONG_CLICK, null));
+                assertEquals(0, ((Slitherlink) read(mode)).edges[edge]);
+            }
+            tapSlitherEdge(0); pressSlitherEdge(board, last, 0);
+            ViewportChecks.all(activity);
+            capture("bugfix-slitherlink-binary-" + size + ".png");
+            close();
+        }
+    }
+
+    private void pressSlitherEdge(SlitherlinkBoard board, int edge, int interruption) throws Exception {
+        Slitherlink game = (Slitherlink) read(Mode.SLITHERLINK);
+        int width = game.size() + 1, a = game.grid.a[edge], b = game.grid.b[edge];
+        android.graphics.RectF bounds = ViewportChecks.bounds(board);
+        float unit = bounds.width() / width;
+        float x = bounds.left + ((a % width + b % width) / 2f + .5f) * unit;
+        float y = bounds.top + ((a / width + b / width) / 2f + .5f) * unit;
+        long start = SystemClock.uptimeMillis();
+        localEdgeEvent(board, start, MotionEvent.ACTION_DOWN, x, y);
+        if (interruption == 1) localEdgeEvent(board, start, MotionEvent.ACTION_CANCEL, x, y);
+        if (interruption == 2) localEdgeEvent(board, start, MotionEvent.ACTION_POINTER_DOWN, x, y);
+        if (interruption == 3) {
+            localEdgeEvent(board, start, MotionEvent.ACTION_MOVE, x + unit, y);
+            localEdgeEvent(board, start, MotionEvent.ACTION_MOVE, x, y);
+        }
+        if (interruption == 4) getInstrumentation().runOnMainSync(() -> {
+            board.onWindowFocusChanged(false); board.onWindowFocusChanged(true);
+        });
+        SystemClock.sleep(BinaryPress.timeout() + 60);
+        localEdgeEvent(board, start, MotionEvent.ACTION_UP, x, y);
+        getInstrumentation().waitForIdleSync();
+    }
+
+    private void localEdgeEvent(View board, long start, int action, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x, y, 0);
+        getInstrumentation().sendPointerSync(event); event.recycle();
+    }
+
+    public void testModeSpecificMotionAndInterruption() throws Exception {
+        for (Mode mode : new Mode[]{Mode.TAKUZU, Mode.NONOGRAM, Mode.FUTOSHIKI, Mode.NUMBERLINK, Mode.SLITHERLINK}) {
+            UndoablePuzzle complete = (UndoablePuzzle) (mode == Mode.NUMBERLINK
+                    ? PuzzleStore.decode(mode, Files.readAllBytes(fixtureFile("NUMBERLINK6-complete.bin").toPath()))
+                    : decodeFixture(mode, "complete"));
+            int[] targets = motionTargets(complete);
+            int target = targets[0];
+            UndoablePuzzle before = (UndoablePuzzle) complete.copy();
+            int empty = mode == Mode.TAKUZU ? -1 : 0;
+            before.entries()[target] = before.entries()[targets[1]] = empty;
+            byte[] baseline = PuzzleStore.encode(before);
+            write(mode, baseline); launch(mode);
+            PuzzleFeedback feedback = feedback();
+            assertFalse("Loading never replays input feedback", feedback.active());
+            android.graphics.RectF boardBounds = ViewportChecks.bounds(tagged("puzzle-board"));
+            enterMotionTarget(complete, target);
+            assertTrue("Real input starts bounded paint feedback: " + mode, feedback.active());
+            assertTrue("New public-rule milestone has a wave: " + mode, feedback.milestones() > 0);
+            assertEquals(complete.entries()[target], ((UndoablePuzzle) read(mode)).entries()[target]);
+            assertEquals(1, progress(mode).undoCount());
+            assertEquals(boardBounds, ViewportChecks.bounds(tagged("puzzle-board")));
+            Rect witness = motionWitness(before, (UndoablePuzzle) read(mode), target);
+            motionFrames(getInstrumentation(), "motion-" + mode.name().toLowerCase(java.util.Locale.ROOT), tagged("puzzle-board"), witness);
+            SystemClock.sleep(950);
+            assertFalse(feedback.active());
+            Method refresh = PuzzleActivity.class.getDeclaredMethod("refresh", String.class); refresh.setAccessible(true);
+            getInstrumentation().runOnMainSync(() -> {
+                try { refresh.invoke(activity, (String) null); } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
+            });
+            assertFalse("Redraw does not replay a milestone", feedback.active());
+            UndoablePuzzle after = (UndoablePuzzle) read(mode);
+            java.util.List<Button> buttons = new java.util.ArrayList<>();
+            for (int i = 0; i < before.size() * before.size() && mode != Mode.NUMBERLINK && mode != Mode.SLITHERLINK; i++)
+                buttons.add((Button) square(i));
+            NumberlinkBoard paths = (NumberlinkBoard) find(activity.getWindow().getDecorView(), v -> v instanceof NumberlinkBoard);
+            SlitherlinkBoard loop = (SlitherlinkBoard) find(activity.getWindow().getDecorView(), v -> v instanceof SlitherlinkBoard);
+            getInstrumentation().runOnMainSync(() -> feedback.changed(before, after, buttons, paths, loop, false));
+            assertFalse("Reduced-motion branch paints only final static state", feedback.active());
+            getInstrumentation().runOnMainSync(() -> feedback.changed(before, after, buttons, paths, loop, true));
+            assertTrue(feedback.active());
+            tap(require(findDescription("How to play " + mode.title)));
+            assertTrue(windowText("Close")); assertFalse("Modal focus loss cancels paint", feedback.active());
+            tapWindow("Close");
+            getInstrumentation().runOnMainSync(() -> feedback.changed(before, after, buttons, paths, loop, true));
+            tap(require(findDescription("Undo last move")));
+            assertFalse("Undo cancels stale paint", feedback.active());
+            assertTrue(Arrays.equals(baseline, PuzzleStore.encode(read(mode))));
+            enterMotionTarget(complete, target);
+            assertTrue("Rapid real input is not held behind earlier feedback", feedback.active());
+            tap(require(findDescription("Undo last move")));
+            assertFalse(feedback.active());
+            assertTrue(Arrays.equals(baseline, PuzzleStore.encode(read(mode))));
+            close(); launch(mode); assertFalse("Resume has no milestone replay", feedback().active());
+            ViewportChecks.all(activity); close();
+        }
+    }
+
+    private void enterMotionTarget(UndoablePuzzle complete, int target) throws Exception {
+        Mode mode = complete.mode();
+        if (mode == Mode.TAKUZU) { tap(binary(complete.entries()[target])); tap(square(target)); }
+        else if (mode == Mode.NONOGRAM) tap(square(target));
+        else if (mode == Mode.FUTOSHIKI) {
+            tap(square(target)); tap(require(tagged("digit-" + complete.entries()[target])));
+        } else if (mode == Mode.NUMBERLINK) {
+            Numberlink link = (Numberlink) complete;
+            tap(pathSquare(link.grid.a[target])); tap(pathSquare(link.grid.b[target]));
+        } else tapSlitherEdge(target);
+    }
+
+    private int[] motionTargets(UndoablePuzzle complete) {
+        int[] entries = complete.entries();
+        int empty = complete instanceof Takuzu ? -1 : 0;
+        for (int target = 0; target < entries.length; target++) {
+            if (!motionEditable(complete, target)) continue;
+            for (int other = 0; other < entries.length; other++) {
+                if (other == target || !motionEditable(complete, other)) continue;
+                UndoablePuzzle before = (UndoablePuzzle) complete.copy(), after = (UndoablePuzzle) complete.copy();
+                before.entries()[target] = before.entries()[other] = empty; after.entries()[other] = empty;
+                if (after.solved()) continue;
+                boolean[] old = PuzzleMilestones.satisfied(before), next = PuzzleMilestones.satisfied(after);
+                for (int i = 0; i < old.length; i++) if (next[i] && !old[i]) return new int[]{target, other};
+            }
+        }
+        throw new AssertionError("No visible-rule milestone fixture for " + complete.mode());
+    }
+
+    private boolean motionEditable(UndoablePuzzle puzzle, int cell) {
+        if (puzzle instanceof Takuzu) return ((Takuzu) puzzle).clues[cell] < 0;
+        if (puzzle instanceof Futoshiki) return ((Futoshiki) puzzle).clues[cell] == 0;
+        return puzzle.entries()[cell] == 1;
+    }
+
+    private PuzzleFeedback feedback() throws Exception {
+        java.lang.reflect.Field field = PuzzleActivity.class.getDeclaredField("feedback"); field.setAccessible(true);
+        return (PuzzleFeedback) field.get(activity);
+    }
+
+    private Rect motionWitness(UndoablePuzzle before, UndoablePuzzle after, int target) {
+        boolean[] old = PuzzleMilestones.satisfied(before), next = PuzzleMilestones.satisfied(after);
+        for (int milestone = 0; milestone < next.length; milestone++) if (next[milestone] && !old[milestone]) {
+            android.graphics.RectF bounds;
+            if (after instanceof Numberlink) {
+                Numberlink link = (Numberlink) after;
+                for (int edge = 0; edge < link.edges.length; edge++) if (before.entries()[edge] == 1
+                        && link.pairAt(link.grid.a[edge]) == milestone) {
+                    bounds = ViewportChecks.bounds(pathSquare(link.grid.a[edge]));
+                    Rect result = new Rect(); bounds.roundOut(result); return result;
+                }
+            } else if (after instanceof Slitherlink) {
+                SlitherlinkBoard board = (SlitherlinkBoard) tagged("puzzle-board");
+                bounds = board.clueBounds(milestone);
+                android.graphics.Matrix matrix = new android.graphics.Matrix(); board.transformMatrixToGlobal(matrix);
+                matrix.mapRect(bounds); Rect result = new Rect(); bounds.roundOut(result); return result;
+            } else {
+                int n = after.size();
+                for (int offset = 0; offset < n; offset++) {
+                    int cell = milestone < n ? milestone * n + offset : offset * n + milestone - n;
+                    if (cell == target) continue;
+                    Rect result = new Rect(); ViewportChecks.bounds(square(cell)).roundOut(result); return result;
+                }
+            }
+        }
+        throw new AssertionError("Milestone has no unchanged spatial witness");
+    }
+
+    static void motionFrames(Instrumentation instrumentation, String prefix, View board) throws Exception {
+        motionFrames(instrumentation, prefix, board, null);
+    }
+
+    static void motionFrames(Instrumentation instrumentation, String prefix, View board, Rect witness) throws Exception {
+        java.util.List<Bitmap> frames = new java.util.ArrayList<>();
+        StringBuilder times = new StringBuilder("frame,uptimeMillis\n");
+        Rect bounds = new Rect(); ViewportChecks.bounds(board).roundOut(bounds);
+        try {
+            for (int frame = 0; frame < 4; frame++) {
+                times.append(frame).append(',').append(SystemClock.uptimeMillis()).append('\n');
+                Bitmap screen = instrumentation.getUiAutomation().takeScreenshot(); assertNotNull(screen);
+                frames.add(Bitmap.createBitmap(screen, bounds.left, bounds.top, bounds.width(), bounds.height()));
+                screen.recycle(); SystemClock.sleep(65);
+            }
+            SystemClock.sleep(1000);
+            Bitmap screen = instrumentation.getUiAutomation().takeScreenshot(); assertNotNull(screen);
+            Bitmap steady = Bitmap.createBitmap(screen, bounds.left, bounds.top, bounds.width(), bounds.height());
+            screen.recycle();
+            boolean intermediate = false;
+            for (Bitmap frame : frames) intermediate |= !frame.sameAs(steady);
+            assertTrue("Actual intermediate board paint differs from final state: " + prefix, intermediate);
+            if (witness != null) {
+                boolean wave = false;
+                for (Bitmap frame : frames) for (int y = Math.max(bounds.top, witness.top); y < Math.min(bounds.bottom, witness.bottom); y++)
+                    for (int x = Math.max(bounds.left, witness.left); x < Math.min(bounds.right, witness.right); x++)
+                        if (frame.getPixel(x - bounds.left, y - bounds.top) != steady.getPixel(x - bounds.left, y - bounds.top)) {
+                            wave = true; break;
+                        }
+                assertTrue("Milestone reaches a separate unchanged cell/clue/route segment: " + prefix, wave);
+            }
+            frames.add(steady);
+            for (int i = 0; i < frames.size(); i++) {
+                try (FileOutputStream stream = new FileOutputStream(new File(
+                        instrumentation.getTargetContext().getExternalFilesDir(null), prefix + "-" + i + ".png"))) {
+                    assertTrue(frames.get(i).compress(Bitmap.CompressFormat.PNG, 100, stream));
+                }
+            }
+            Files.write(new File(instrumentation.getTargetContext().getExternalFilesDir(null), prefix + ".csv").toPath(),
+                    times.toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        } finally { for (Bitmap frame : frames) frame.recycle(); }
+    }
+
+    public void testMinesFlagOutlineMotion() throws Exception {
+        Mode mode = Mode.MINESWEEPER;
+        write(mode, PuzzleStore.encode(new Minesweeper(2026111902L))); launch(mode);
+        tap(require(tagged("puzzle-input")));
+        tap(square(0));
+        for (int i = 0; i < 64; i++) assertEquals("Flags never fade text or cells", 1f, square(i).getAlpha(), .001f);
+        motionFrames(getInstrumentation(), "motion-mines-flag", tagged("puzzle-board"));
+        assertEquals(2, ((Minesweeper) read(mode)).cells[0]);
+    }
+
+    public void testMotionCompletionStaysSingleAndStaticOnResume() throws Exception {
+        for (Mode mode : new Mode[]{Mode.TAKUZU, Mode.NONOGRAM, Mode.FUTOSHIKI, Mode.NUMBERLINK, Mode.SLITHERLINK}) {
+            write(mode, fixture(mode, "ready")); launch(mode);
+            int target = Integer.parseInt(new String(Files.readAllBytes(fixtureFile(mode + "-target.txt").toPath()),
+                    java.nio.charset.StandardCharsets.US_ASCII).trim());
+            lastMove(decodeFixture(mode, "complete"), target);
+            assertTrue(read(mode).solved());
+            assertFalse("Completion uses existing cascade, not stacked milestone waves", feedback().active());
+            assertNotNull(tagged("completion-effect"));
+            long frozen = progress(mode).elapsedMillis;
+            close(); launch(mode);
+            assertNull("Restored completion never replays", tagged("completion-effect"));
+            assertFalse(feedback().active()); assertEquals(frozen, progress(mode).elapsedMillis);
+            tap(require(findDescription("Undo last move")));
+            assertFalse(read(mode).solved()); assertFalse("Undo has no success pulse", feedback().active());
+            close();
+        }
+    }
+
+    public void testMinesFloodKeepsOpaqueCellsAndDoesNotReplay() throws Exception {
+        Mode mode = Mode.MINESWEEPER;
+        Minesweeper before = new Minesweeper(2026112001);
+        write(mode, PuzzleStore.encode(before)); launch(mode);
+        java.lang.reflect.Field field = PuzzleActivity.class.getDeclaredField("minesFeedback"); field.setAccessible(true);
+        MinesFeedback feedback = (MinesFeedback) field.get(activity);
+        java.util.List<Button> buttons = new java.util.ArrayList<>();
+        for (int cell = 0; cell < 64; cell++) buttons.add((Button) square(cell));
+        int covered = squareFill(square(63));
+        int finalCovered = covered;
+        java.util.Map<Integer, android.graphics.RectF> bounds = mineBounds();
+        android.graphics.RectF target = ViewportChecks.bounds(square(27));
+        long start = SystemClock.uptimeMillis();
+        localEdgeEvent(square(27), start, MotionEvent.ACTION_DOWN, target.centerX(), target.centerY());
+        localEdgeEvent(square(27), start, MotionEvent.ACTION_UP, target.centerX(), target.centerY());
+        getInstrumentation().waitForIdleSync();
+        Minesweeper revealed = (Minesweeper) read(mode);
+        assertEquals(27, revealed.first); assertEquals(0, revealed.adjacent(27));
+        StringBuilder times = new StringBuilder("frame,uptimeMillis\n");
+        java.util.List<Bitmap> frames = new java.util.ArrayList<>();
+        try {
+            for (int frame = 0; frame < 4; frame++) {
+                for (Button button : buttons) assertEquals("Reveal never fades an entire cell/text", 1f, button.getAlpha(), .001f);
+                for (int cell = 0; cell < 64; cell++) {
+                    if (revealed.cells[cell] == 0) assertEquals("Untouched square fill stays steady", covered, squareFill(square(cell)));
+                    android.graphics.drawable.RippleDrawable ripple = (android.graphics.drawable.RippleDrawable) square(cell).getBackground();
+                    assertNotNull("Every cell ripple has a clipping mask", ripple.findDrawableByLayerId(android.R.id.mask));
+                }
+                times.append(frame).append(',').append(SystemClock.uptimeMillis()).append('\n');
+                Bitmap image = getInstrumentation().getUiAutomation().takeScreenshot(); assertNotNull(image);
+                frames.add(image); SystemClock.sleep(30);
+            }
+            for (int frame = 0; frame < frames.size(); frame++) {
+                try (FileOutputStream stream = new FileOutputStream(new File(
+                        getInstrumentation().getTargetContext().getExternalFilesDir(null), "bugfix-mines-reveal-" + frame + ".png"))) {
+                    assertTrue(frames.get(frame).compress(Bitmap.CompressFormat.PNG, 100, stream));
+                }
+            }
+        } finally { for (Bitmap frame : frames) frame.recycle(); }
+        Files.write(new File(getInstrumentation().getTargetContext().getExternalFilesDir(null),
+                "bugfix-mines-reveal.csv").toPath(), times.toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        getInstrumentation().runOnMainSync(feedback::stop);
+        int[] fills = new int[64];
+        for (int cell = 0; cell < 64; cell++) fills[cell] = squareFill(square(cell));
+        getInstrumentation().runOnMainSync(() -> feedback.changed(revealed, revealed, buttons, true, finalCovered));
+        assertFalse("Unchanged cells never restart a reveal", feedback.active());
+        for (int cell = 0; cell < 64; cell++) assertEquals(fills[cell], squareFill(square(cell)));
+        SystemClock.sleep(1100);
+        assertFalse("Timer ticks never replay reveals", feedback.active());
+        assertEquals(bounds, mineBounds());
+        getInstrumentation().runOnMainSync(() -> feedback.changed(before, revealed, buttons, false, finalCovered));
+        assertFalse("Reduced-motion path leaves final fills steady", feedback.active());
+        close(); launch(mode);
+        assertFalse("Resume never replays opening flood", ((MinesFeedback) field.get(activity)).active());
+    }
+
+    public void testSettingsBackReturnsToGameAndMenuOrigins() throws Exception {
+        for (Mode mode : Mode.values()) for (boolean fromGame : new boolean[]{true, false}) {
+            write(mode, fixture(mode, "initial"));
+            if (fromGame) launch(mode);
+            else {
+                activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), PuzzleMenuActivity.class)
+                        .putExtra(PuzzleActivity.MODE, mode.name()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                menuReady(mode);
+            }
+            Activity origin = activity;
+            if (fromGame && mode == Mode.TAKUZU) tap(binary(1));
+            if (fromGame && mode == Mode.FUTOSHIKI) {
+                Futoshiki puzzle = (Futoshiki) read(mode);
+                int target = 0; while (puzzle.clues[target] != 0) target++;
+                tap(square(target));
+            }
+            byte[] original = PuzzleStore.encode(read(mode));
+            for (boolean systemBack : new boolean[]{false, true}) {
+                Instrumentation.ActivityMonitor monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
+                tap(require(findDescription("Settings")));
+                activity = monitor.waitForActivityWithTimeout(5000); getInstrumentation().removeMonitor(monitor);
+                assertNotNull(activity); settle();
+                assertNull("Direct game settings do not invent a global parent", findDescription("Back to settings"));
+                if (mode == Mode.NONOGRAM && fromGame && !systemBack) capture("bugfix-settings-from-game.png");
+                if (systemBack) {
+                    monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
+                    getInstrumentation().runOnMainSync(() -> activity.recreate());
+                    activity = monitor.waitForActivityWithTimeout(5000); getInstrumentation().removeMonitor(monitor);
+                    assertNotNull(activity); settle();
+                    getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+                } else tap(require(findDescription("Back")));
+                settle(); assertTrue("Settings activity finishes to its real Android caller", activity.isFinishing());
+                activity = origin; settle();
+                assertTrue(Arrays.equals(original, PuzzleStore.encode(read(mode))));
+                if (fromGame && mode == Mode.TAKUZU) assertTrue("Settings preserves the armed digit tool", binary(1).isSelected());
+                if (fromGame && mode == Mode.FUTOSHIKI) {
+                    boolean selected = false;
+                    for (int cell = 0; cell < 16; cell++) selected |= square(cell).isSelected();
+                    assertTrue("Settings preserves the selected Futoshiki square", selected);
+                }
+                if (fromGame) assertNotNull(tagged("puzzle-board")); else assertNotNull(tagged("puzzle-resume"));
+            }
             close();
         }
     }
@@ -997,10 +1392,8 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                     .putExtra(MainActivity.OPEN_SETTINGS, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
             settle();
             ViewportChecks.navigation(activity, require(findDescription("Close settings")), null);
-            View export = require(findDescription("Export puzzle records")), imports = require(findDescription("Import curated collection"));
-            ViewGroup list = (ViewGroup) export.getParent();
-            assertEquals("Import/export end the entire settings list", list.getChildCount() - 1, list.indexOfChild(imports));
-            assertEquals(list.indexOfChild(imports) - 1, list.indexOfChild(export));
+            assertNull(findDescription("Export puzzle records"));
+            assertNull(findDescription("Import curated collection"));
             assertNotNull(tagged("game-settings-SUDOKU")); assertNotNull(tagged("game-settings-DAILY_WORD"));
             for (Mode mode : Mode.values()) {
                 write(mode, fixture(mode, "initial")); byte[] original = bytes(mode);
@@ -1216,7 +1609,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                     java.util.List<Button> buttons = new java.util.ArrayList<>();
                     for (int cell = 0; cell < 64; cell++) buttons.add((Button) square(cell));
                     Minesweeper loss = (Minesweeper) read(mode);
-                    getInstrumentation().runOnMainSync(() -> feedback.changed(revealed, loss, buttons, false));
+                    getInstrumentation().runOnMainSync(() -> feedback.changed(revealed, loss, buttons, false, palette.tint));
                     assertFalse("Disabled-motion branch leaves a steady result", feedback.active());
                     assertEquals(bounds, mineBounds());
                     for (Button button : buttons) assertEquals(1f, button.getAlpha(), .001f);
@@ -1378,8 +1771,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         ViewportChecks.controls(activity.getWindow().getDecorView());
         assertNotNull(findDescription("Show mistakes").getTooltipText());
         capture("puzzles-no-subtitles-settings.png");
-        tap(require(findDescription("Back to settings"))); settle();
-        tap(require(findDescription("Close settings"))); settle();
+        tap(require(findDescription("Back"))); settle();
         tap(require(findDescription(getInstrumentation().getTargetContext().getString(R.string.back_to_puzzles)))); settle();
         for (Mode mode : Mode.values()) {
             write(mode, fixture(mode, "initial"));
@@ -1439,8 +1831,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                 Activity settingsActivity = settingsMonitor.waitForActivityWithTimeout(5000); getInstrumentation().removeMonitor(settingsMonitor);
                 assertNotNull(settingsActivity); activity = settingsActivity; getInstrumentation().waitForIdleSync();
                 ViewportChecks.controls(activity.getWindow().getDecorView());
-                tap(require(findDescription("Back to settings")));
-                tap(require(findDescription("Close settings"))); activity = menu; menuReady(mode);
+                tap(require(findDescription("Back"))); activity = menu; menuReady(mode);
             }
             android.app.Instrumentation.ActivityMonitor gameMonitor = getInstrumentation().addMonitor(PuzzleActivity.class.getName(), null, false);
             tap(require(tagged("puzzle-resume")));

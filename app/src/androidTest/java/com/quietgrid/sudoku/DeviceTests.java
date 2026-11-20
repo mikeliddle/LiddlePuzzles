@@ -1850,7 +1850,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                         } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
                     });
                     getInstrumentation().waitForIdleSync(); SystemClock.sleep(250);
-                    ViewportChecks.all(activity);
+                    ViewportChecks.polishedGameplay(activity);
                     android.graphics.RectF before = ViewportChecks.bounds(board());
                     View notes = activity.findViewById(android.R.id.content).findViewWithTag("notes-toggle");
                     assertNotNull(notes); assertFalse(notes.isSelected());
@@ -1858,6 +1858,12 @@ public final class DeviceTests extends InstrumentationTestCase {
                     tap(notes); assertTrue(notes.isSelected());
                     tap(notes); assertFalse(notes.isSelected());
                     assertEquals("Input-mode changes do not shift the board", before, ViewportChecks.bounds(board()));
+                    ViewGroup bank = activity.findViewById(android.R.id.content).findViewWithTag("sudoku-bank");
+                    for (int i = 0; i < bank.getChildCount(); i++) {
+                        TextView number = (TextView) bank.getChildAt(i);
+                        assertEquals("Both the digit and remaining-count line are retained", 2, number.getLineCount());
+                        ViewportChecks.textFits(number);
+                    }
                     capture("sudoku-fit-" + orientation + "-" + (int) scale + ".png");
                 }
             } finally { runTestOnUiThread(() ->
@@ -2059,6 +2065,7 @@ public final class DeviceTests extends InstrumentationTestCase {
         getInstrumentation().sendPointerSync(down); getInstrumentation().sendPointerSync(up);
         down.recycle(); up.recycle();
         getInstrumentation().waitForIdleSync();
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
     }
 
     private View findText(String text) { return findText(activity.getWindow().getDecorView(), text); }

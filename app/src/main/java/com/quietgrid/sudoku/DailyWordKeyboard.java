@@ -12,6 +12,7 @@ final class DailyWordKeyboard extends ViewGroup {
     private final List<Button> letters;
     private final View erase, enter;
     private final int keyHeight, gap;
+    private final float maximumLetterSize;
 
     DailyWordKeyboard(Context context, List<Button> letters, View erase, View enter, int keyHeight) {
         super(context);
@@ -19,6 +20,7 @@ final class DailyWordKeyboard extends ViewGroup {
         this.erase = erase;
         this.enter = enter;
         this.keyHeight = keyHeight;
+        maximumLetterSize = letters.get(0).getTextSize();
         gap = Math.round(4 * getResources().getDisplayMetrics().density);
         for (int i = 0; i < 19; i++) addView(letters.get(i));
         addView(erase);
@@ -29,6 +31,19 @@ final class DailyWordKeyboard extends ViewGroup {
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getSize(widthSpec);
         int halfKey = Math.max(1, width / 22);
+        int letterWidth = Math.max(1, 2 * halfKey - gap);
+        android.text.TextPaint ink = new android.text.TextPaint(letters.get(0).getPaint());
+        ink.setTextSize(maximumLetterSize);
+        android.graphics.Paint.FontMetrics metrics = ink.getFontMetrics();
+        float size = maximumLetterSize;
+        for (Button letter : letters) {
+            float availableWidth = Math.max(1, letterWidth - letter.getCompoundPaddingLeft() - letter.getCompoundPaddingRight());
+            float availableHeight = Math.max(1, keyHeight - letter.getCompoundPaddingTop() - letter.getCompoundPaddingBottom());
+            float textHeight = letter.getIncludeFontPadding() ? metrics.bottom - metrics.top : metrics.descent - metrics.ascent;
+            size = Math.min(size, maximumLetterSize * Math.min(availableWidth / ink.measureText(letter.getText().toString()),
+                    availableHeight / textHeight));
+        }
+        for (Button letter : letters) letter.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, size);
         for (int i = 0; i < getChildCount(); i++) {
             View child = getChildAt(i);
             int span = child == enter ? 5 : 2;

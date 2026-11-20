@@ -140,8 +140,8 @@ final class DailyWordBoard extends LinearLayout {
                 String letter = c < word.length() ? word.substring(c, c + 1).toUpperCase(Locale.ROOT) : "";
                 String mark = state == DailyWord.CORRECT ? "\u2713" : state == DailyWord.PRESENT ? "\u25CB"
                         : state == DailyWord.ABSENT ? "\u2013" : "";
-                SpannableString display = new SpannableString(letter + "\n" + mark);
-                display.setSpan(new RelativeSizeSpan(.48f), letter.length(), display.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                SpannableString display = new SpannableString(submitted ? letter + "\n" + mark : letter);
+                if (submitted) display.setSpan(new RelativeSizeSpan(.48f), letter.length(), display.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 tile.setText(display);
                 tile.setTextColor(foreground(palette, state));
                 GradientDrawable background = new GradientDrawable();

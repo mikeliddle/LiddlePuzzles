@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 @SuppressWarnings("deprecation")
 public final class PersistenceDeviceTests extends InstrumentationTestCase {
     private Activity activity;
+    private int failureSync = 2;
     private final Map<File, byte[]> originals = new LinkedHashMap<>();
     private Map<String, ?> preferences;
     private File file(String name) { return new File(getInstrumentation().getTargetContext().getFilesDir(), name); }
@@ -166,6 +167,101 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         assertEquals("a", ((DailyWord) field(activity, "game")).day(old).draft());
         assertEquals("", ((DailyWord) field(activity, "game")).day(old.plusDays(1)).draft());
     }
+    public void testFinalBackupRetirementFailureAcrossWriters() throws Throwable {
+        failureSync = 3;
+        testFinalCommitFailuresDoNotPublishAndCanRetry();
+    }
+    public void testOversizedRejectedSaveConfirmedReplacementRollsBackAndRetries() throws Throwable {
+        File oversized = file("puzzles/takuzu-v1.bin");
+        Files.createDirectories(oversized.getParentFile().toPath());
+        byte[] block = new byte[8192];
+        for (int i = 0; i < block.length; i++) block[i] = (byte) i;
+        try (FileOutputStream out = new FileOutputStream(oversized)) {
+            for (int i = 0; i < 8192; i++) out.write(block);
+            out.getFD().sync();
+        }
+        assertEquals(64L * 1024 * 1024, oversized.length());
+        byte[] originalDigest = sha256(oversized);
+        start(PuzzleActivity.class, new Intent().putExtra(PuzzleActivity.MODE, "TAKUZU"));
+        assertEquals(true, field(activity, "loadFailed"));
+        assertNull(field(activity, "game"));
+        failureSync = 3;
+        failFinalCommit();
+        runTestOnUiThread(() -> {
+            setField(activity, "newSetting", 6);
+            invoke(activity, "requestNew");
+        });
+        assertTrue(Arrays.equals(originalDigest, sha256(oversized)));
+        confirmReplacement();
+        awaitReplacementAttempt();
+        assertNull("Failed replacement must not publish the generated board", field(activity, "game"));
+        assertEquals(true, field(activity, "generationFailed"));
+        assertEquals(true, field(activity, "newRequested"));
+        assertEquals(64L * 1024 * 1024, oversized.length());
+        assertTrue("Rollback restores every oversized byte", Arrays.equals(originalDigest, sha256(oversized)));
+        restoreWriter();
+        runTestOnUiThread(() -> assertTrue(((android.view.View) field(activity, "retry")).performClick()));
+        confirmReplacement();
+        awaitReplacementAttempt();
+        assertNotNull(field(activity, "game"));
+        assertEquals(false, field(activity, "newRequested"));
+        assertEquals(false, field(activity, "loadFailed"));
+        assertTrue("Accepted replacement is bounded", oversized.length() <= PuzzleStore.MAX_SAVE_BYTES);
+        assertEquals(6, PuzzleActivity.readProgress(getInstrumentation().getTargetContext(), Mode.TAKUZU).game.size());
+    }
+    private void confirmReplacement() {
+        for (int attempt = 0; attempt < 30; attempt++) {
+            getInstrumentation().waitForIdleSync();
+            android.view.accessibility.AccessibilityNodeInfo root =
+                    getInstrumentation().getUiAutomation().getRootInActiveWindow();
+            if (root != null) try {
+                for (android.view.accessibility.AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText("Replace")) {
+                    try {
+                        if ("Replace".equalsIgnoreCase(node.getText() == null ? "" : node.getText().toString())
+                                && node.isClickable()) {
+                            android.graphics.Rect bounds = new android.graphics.Rect();
+                            node.getBoundsInScreen(bounds);
+                            long time = SystemClock.uptimeMillis();
+                            android.view.MotionEvent down = android.view.MotionEvent.obtain(time, time,
+                                    android.view.MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
+                            android.view.MotionEvent up = android.view.MotionEvent.obtain(time, time + 60,
+                                    android.view.MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                            try {
+                                getInstrumentation().sendPointerSync(down);
+                                getInstrumentation().sendPointerSync(up);
+                            } finally { down.recycle(); up.recycle(); }
+                            getInstrumentation().waitForIdleSync();
+                            return;
+                        }
+                    } finally { node.recycle(); }
+                }
+            } finally { root.recycle(); }
+            SystemClock.sleep(100);
+        }
+        fail("Explicit Replace action missing");
+    }
+    private void awaitReplacementAttempt() {
+        long deadline = SystemClock.uptimeMillis() + 20000;
+        while (SystemClock.uptimeMillis() < deadline) {
+            boolean[] complete = {false};
+            getInstrumentation().runOnMainSync(() -> complete[0] = Boolean.FALSE.equals(field(activity, "busy"))
+                    && ((SaveSession<?>) field(activity, "saveSession")).idle());
+            if (complete[0]) {
+                NativeSaveAwaiter.await(getInstrumentation(), activity);
+                return;
+            }
+            SystemClock.sleep(50);
+        }
+        fail("Replacement attempt did not finish");
+    }
+    private static byte[] sha256(File file) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        try (FileInputStream in = new FileInputStream(file)) {
+            byte[] buffer = new byte[8192]; int count;
+            while ((count = in.read(buffer)) != -1) digest.update(buffer, 0, count);
+        }
+        return digest.digest();
+    }
     public void testConfirmedReplacementSurvivesRecreationWithOldBoard() throws Throwable {
         put("puzzles/takuzu-v1.bin", PuzzleStore.encode(Takuzu.generate(8, new Random(21), new Generation())));
         start(PuzzleActivity.class, new Intent().putExtra(PuzzleActivity.MODE, "TAKUZU"));
@@ -299,7 +395,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
                 @Override public void delete(File file) throws IOException { delegate.delete(file); }
                 @Override public void syncDirectory(File directory) throws IOException {
                     delegate.syncDirectory(directory);
-                    if (++syncs == 2) throw new IOException("Injected directory sync failure after replacement");
+                    if (++syncs == failureSync) throw new IOException("Injected directory sync failure at stage " + failureSync);
                 }
             });
         });

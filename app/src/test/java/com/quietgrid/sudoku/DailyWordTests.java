@@ -208,7 +208,11 @@ public final class DailyWordTests {
     }
 
     private static void badData() throws Exception {
-        for (String words : new String[]{"apple apple", "APPLE", "four", ""}) {
+        DailyWord separated = new DailyWord(new StringReader(" \tapple\n\nbless\r\ncrane\f "),
+                new StringReader("\tbless  apple\n"));
+        check(separated.scheduleLength() == 2 && separated.answer(DailyWord.EPOCH).equals("bless"),
+                "Dictionary whitespace tokenization preserves answer order");
+        for (String words : new String[]{"apple apple", "apple\napple", "APPLE", "four", "", "caf\u00e9s", "appl1"}) {
             try {
                 new DailyWord(new StringReader(words), new StringReader("apple"));
                 throw new AssertionError("Invalid vocabulary accepted");

@@ -360,7 +360,7 @@ public final class PuzzleActivity extends Activity {
         FrameLayout titleSlot = new FrameLayout(this);
         title.setGravity(Gravity.CENTER);
         titleSlot.addView(title, new FrameLayout.LayoutParams(-1, -1));
-        heading.addView(titleSlot, new LinearLayout.LayoutParams(0, dp(56 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
+        heading.addView(titleSlot, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton help = iconButton("How to play " + mode.title, R.drawable.ic_help);
         help.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("How to play " + mode.title)
                 .setMessage(mode.help).setPositiveButton("Close", null).show());
@@ -370,6 +370,7 @@ public final class PuzzleActivity extends Activity {
         settings.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)
                 .putExtra(MainActivity.OPEN_SETTINGS, true).putExtra(MainActivity.SETTINGS_GAME, mode.name())));
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        ScreenChrome.centerTitle(heading, titleSlot);
         clock = text("0:00", 18); clock.setTag("elapsed-time"); clock.setGravity(Gravity.CENTER);
         clock.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         content.addView(clock, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, getResources().getConfiguration().fontScale))));
@@ -378,16 +379,25 @@ public final class PuzzleActivity extends Activity {
         status.setAutoSizeTextTypeUniformWithConfiguration(10, 24, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         titleSlot.addView(status, new FrameLayout.LayoutParams(-1, -1));
+        content.setGravity(Gravity.CENTER_HORIZONTAL);
         boardArea = column(); boardArea.setGravity(Gravity.CENTER_HORIZONTAL); content.addView(boardArea);
         LinearLayout controls = row(); newPuzzle = button("");
+        GradientDrawable gutter = new GradientDrawable(); gutter.setColor(android.graphics.Color.TRANSPARENT);
+        gutter.setSize(dp(8), 1); controls.setDividerDrawable(gutter);
+        controls.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
         ControlStyle.icon(newPuzzle, "New puzzle", R.drawable.ic_add, palette.accent);
         newPuzzle.setOnClickListener(v -> showMenu());
         newPuzzle.setTag("puzzle-input");
-        controls.addView(newPuzzle, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams newLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
+        controls.addView(newPuzzle, newLayout);
         retry = button("Retry"); retry.setOnClickListener(v -> {
             if (!busy) { if (loadFailed && !generationFailed) open(); else requestNew(); }
         });
-        controls.addView(retry, new LinearLayout.LayoutParams(0, -2, 1)); content.addView(controls);
+        LinearLayout.LayoutParams retryLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
+        controls.addView(retry, retryLayout);
+        LinearLayout.LayoutParams actionsLayout = new LinearLayout.LayoutParams(-1, -2); actionsLayout.topMargin = dp(12);
+        content.addView(controls, actionsLayout);
+        controls.setTag("puzzle-actions");
         undo = iconButton("Undo last move", R.drawable.ic_undo);
         undo.setPadding(dp(16), dp(16), dp(16), dp(16));
         undo.setMinimumHeight(dp(56)); undo.setMinimumWidth(dp(56));
@@ -396,7 +406,7 @@ public final class PuzzleActivity extends Activity {
                 surface(palette.surface, palette.line), null));
         undo.setOnClickListener(v -> undo());
         if (mode == Mode.TAKUZU) {
-            binaryBank = row(); binaryBank.setPadding(dp(8), dp(4), dp(8), dp(8)); binaryBank.setMinimumHeight(dp(56));
+            binaryBank = row(); binaryBank.setMinimumHeight(dp(56));
             binaryBank.setTag("puzzle-input");
             for (int value = 0; value < 3; value++) {
                 int digit = value;
@@ -404,15 +414,18 @@ public final class PuzzleActivity extends Activity {
                 key.setTag("binary-" + value);
                 if (key instanceof Button) ((Button) key).setTextSize(22);
                 key.setOnClickListener(v -> chooseBinary(digit)); binaryKeys[value] = key;
-                binaryBank.addView(key, new LinearLayout.LayoutParams(0, -1, 1));
+                LinearLayout.LayoutParams keyLayout = new LinearLayout.LayoutParams(0, dp(56), 1); keyLayout.setMarginEnd(dp(8));
+                binaryBank.addView(key, keyLayout);
             }
-            binaryBank.addView(undo, new LinearLayout.LayoutParams(0, -1, 1));
-            content.addView(binaryBank, content.indexOfChild(controls));
+            binaryBank.addView(undo, new LinearLayout.LayoutParams(0, dp(56), 1));
+            LinearLayout.LayoutParams bankLayout = new LinearLayout.LayoutParams(-1, -2); bankLayout.topMargin = dp(12);
+            content.addView(binaryBank, content.indexOfChild(controls), bankLayout);
         } else if (mode != Mode.MINESWEEPER) controls.addView(undo, new LinearLayout.LayoutParams(dp(56), dp(56)));
         boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         sideActions = null;
         if (wide) {
             LinearLayout body = row(), actions = column();
+            body.setGravity(Gravity.TOP);
             int boardIndex = content.indexOfChild(boardArea);
             content.removeView(boardArea);
             while (content.getChildCount() > boardIndex) {
@@ -421,7 +434,7 @@ public final class PuzzleActivity extends Activity {
             content.removeView(clock);
             actions.addView(clock, 0);
             LinearLayout.LayoutParams boardLayout = new LinearLayout.LayoutParams(-2, -2);
-            if (mode == Mode.FUTOSHIKI) boardLayout.setMarginEnd(dp(16));
+            boardLayout.setMarginEnd(dp(16));
             body.addView(boardArea, boardLayout);
             body.addView(actions, new LinearLayout.LayoutParams(0, -2, 1));
             content.addView(body);
@@ -533,7 +546,8 @@ public final class PuzzleActivity extends Activity {
         for (int r = 0; r < n; r++) {
             LinearLayout line = row();
             if (game instanceof Nonogram) {
-                TextView clue = pictureClues[r]; clue.setGravity(Gravity.CENTER);
+                TextView clue = pictureClues[r]; clue.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+                clue.setPaddingRelative(dp(3), dp(3), dp(6), dp(3));
                 line.addView(clue, new LinearLayout.LayoutParams(clueWidth, cellSize));
             }
             for (int c = 0; c < n; c++) {
@@ -575,7 +589,9 @@ public final class PuzzleActivity extends Activity {
                 key.setOnClickListener(v -> {
                     saveSession.dispatch(owner -> owner.enterFutoshiki(digit));
                 });
-                bank.addView(key, new LinearLayout.LayoutParams(0, -2, 1));
+                LinearLayout.LayoutParams keyLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
+                if (value < 4) keyLayout.setMarginEnd(dp(8));
+                bank.addView(key, keyLayout);
             }
             addBoardControls(bank);
             if (sideActions == null) {
@@ -641,7 +657,7 @@ public final class PuzzleActivity extends Activity {
         if (binaryBank != null) for (int value = 0; value < 3; value++) {
             View key = binaryKeys[value]; boolean armed = binaryArmed == value;
             String label = value == 2 ? "Erase" : "" + value;
-            if (key instanceof Button) ((Button) key).setText(label + (armed ? " \u2713" : ""));
+            if (key instanceof Button) ((Button) key).setText(label);
             key.setSelected(armed);
             key.setContentDescription(label + (armed ? ", selected. Tap again to return to default tap 0, hold 1."
                     : ", select then tap squares repeatedly. With no tool selected, tap 0 or hold 1; repeat the same value to clear."));
@@ -748,10 +764,12 @@ public final class PuzzleActivity extends Activity {
         if (mineTool != null) {
             String mineAction = (flag ? "Flag mode, switch to reveal" : "Reveal mode, switch to flag") + ". "
                     + ((Minesweeper) game).flags() + " of " + ((Minesweeper) game).mineCount + " flags placed.";
-            ControlStyle.icon(mineTool, mineAction, R.drawable.ic_flag, flag ? palette.ink : palette.accent);
-            mineTool.setForegroundGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            mineTool.setContentDescription(mineAction); mineTool.setTooltipText(mineAction);
+            String maximum = ((Minesweeper) game).mineCount < 10 ? "8" : "88";
+            ControlStyle.countedIcon(mineTool, R.drawable.ic_flag,
+                    ((Minesweeper) game).flags() + "/" + ((Minesweeper) game).mineCount,
+                    "888/" + maximum, flag ? palette.ink : palette.accent);
             ControlStyle.state(mineTool, flag);
-            mineTool.setText(((Minesweeper) game).flags() + "/" + ((Minesweeper) game).mineCount);
             GradientDrawable toolFill = surface(flag ? palette.tint : palette.surface, flag ? palette.accent : palette.line);
             if (flag) toolFill.setStroke(dp(3), palette.accent);
             actionSurface(mineTool, toolFill);
@@ -766,8 +784,9 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void addBoardControls(View controls) {
-        if (sideActions == null) boardArea.addView(controls);
-        else { sideActions.addView(controls, sideActions.getChildCount() - 1); sideControls.add(controls); }
+        LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(-1, -2); slot.topMargin = dp(12);
+        if (sideActions == null) boardArea.addView(controls, slot);
+        else { sideActions.addView(controls, sideActions.getChildCount() - 1, slot); sideControls.add(controls); }
     }
 
     private String edgeDescription(int edge) {
@@ -787,7 +806,7 @@ public final class PuzzleActivity extends Activity {
     private TextView pictureClue(int index) {
         Nonogram picture = (Nonogram) game; int n = picture.size();
         TextView clue = text(runs(index < n ? picture.rows[index] : picture.columns[index - n], index < n ? " " : "\n"), 16);
-        clue.setFocusable(true); clue.setPadding(dp(3), dp(3), dp(3), dp(3));
+        clue.setFocusable(true); clue.setPaddingRelative(dp(3), dp(3), dp(index < n ? 6 : 3), dp(3));
         clue.setTag("nonogram-" + (index < n ? "row-" : "column-") + index % n);
         pictureClues[index] = clue;
         return clue;
@@ -800,6 +819,16 @@ public final class PuzzleActivity extends Activity {
         playViewport.setMinimumContentWidth(Math.max(dp(wide ? 720 : 360), board.getMeasuredWidth()
                 + dp(16 + (wide ? 220 * Math.max(1, getResources().getConfiguration().fontScale) : 0))));
         boardArea.addView(board, new LinearLayout.LayoutParams(-2, -2));
+        if (!wide) {
+            int width = board.getMeasuredWidth();
+            for (int i = 0; i < content.getChildCount(); i++) {
+                View child = content.getChildAt(i);
+                if (child == boardArea || child == binaryBank || "puzzle-actions".equals(child.getTag())) {
+                    LinearLayout.LayoutParams slot = (LinearLayout.LayoutParams) child.getLayoutParams();
+                    slot.width = width; slot.gravity = Gravity.CENTER_HORIZONTAL; child.setLayoutParams(slot);
+                }
+            }
+        }
     }
     private TextView inequality(int sign, boolean vertical, String name) {
         TextView view = text(sign == 0 ? "" : vertical ? sign < 0 ? "^" : "v" : sign < 0 ? "<" : ">", 19);
@@ -832,9 +861,7 @@ public final class PuzzleActivity extends Activity {
         button.setMinimumWidth(dp(48)); button.setMinimumHeight(dp(48));
         button.setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
         button.setStateListAnimator(null); button.setElevation(0);
-        button.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), null,
-                new android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)));
+        ControlStyle.navigation(button, android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000));
         return button;
     }
     private TextView text(String text, int size) { TextView view = new TextView(this); view.setText(text); view.setTextSize(size); view.setTextColor(palette.ink); view.setGravity(Gravity.CENTER); return view; }
@@ -852,9 +879,8 @@ public final class PuzzleActivity extends Activity {
         GradientDrawable bg = new GradientDrawable(); bg.setColor(fill); bg.setCornerRadius(dp(5)); bg.setStroke(dp(1), stroke); return bg;
     }
     private void actionSurface(View view, GradientDrawable fill) {
-        view.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), fill,
-                new android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)));
+        view.setBackground(ControlStyle.ripple(
+                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), fill));
     }
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {

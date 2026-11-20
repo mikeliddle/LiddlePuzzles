@@ -710,6 +710,27 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         }
     }
 
+    public void testNumberlinkLooseRouteRetractsAcquiredPairAndRedirectsWithinOneDrag() throws Exception {
+        Mode mode = Mode.NUMBERLINK;
+        Numberlink board = (Numberlink) decodeFixture(mode, "initial");
+        Arrays.fill(board.endpoints, 0); Arrays.fill(board.edges, 0);
+        for (int pair = 1; pair <= 4; pair++) {
+            board.endpoints[(pair - 1) * 4] = pair; board.endpoints[(pair - 1) * 4 + 3] = pair;
+        }
+        assertNull(board.toggle(1, 2));
+        write(mode, PuzzleStore.encode(board)); launch(mode);
+        dragPath(new int[]{1, 0, 1, 5, 4}, false);
+        Numberlink changed = (Numberlink) read(mode);
+        assertEquals("Retracted endpoint does not retain pair-one identity", 2, changed.pairAt(1));
+        assertEquals(0, changed.edges[changed.grid.between(0, 1)]);
+        assertEquals(1, changed.edges[changed.grid.between(1, 5)]);
+        assertEquals(1, changed.edges[changed.grid.between(5, 4)]);
+        assertEquals("One continuous redirect is one edit", 1, progress(mode).undoCount());
+        assertEquals("Open route does not celebrate a completed pair", 0, feedback().milestones());
+        tap(require(findDescription("Undo last move")));
+        assertTrue("Undo restores the exact original loose route", Arrays.equals(board.edges, ((Numberlink) read(mode)).edges));
+    }
+
     public void testNumberlinkDragColorsAndStableFeedback() throws Exception {
         Mode mode = Mode.NUMBERLINK;
         Numberlink board = (Numberlink) decodeFixture(mode, "initial");
@@ -1008,6 +1029,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                         && "Enter or clear cross".contentEquals(a.getLabel())));
                 getInstrumentation().runOnMainSync(() -> board.getAccessibilityNodeProvider()
                         .performAction(edge, AccessibilityNodeInfo.ACTION_LONG_CLICK, null));
+                ViewportChecks.awaitEdits(getInstrumentation(), activity);
                 assertEquals(0, ((Slitherlink) read(mode)).edges[edge]);
             }
             tapSlitherEdge(0); pressSlitherEdge(board, last, 0);
@@ -2042,8 +2064,9 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                             } catch (ReflectiveOperationException ex) { throw new AssertionError(ex); }
                         });
                         getInstrumentation().waitForIdleSync(); SystemClock.sleep(250);
-                        ViewportChecks.all(activity);
+                        ViewportChecks.polishedGameplay(activity);
                         assertCentered();
+                        assertPolishedControls(mode);
                         capture("puzzles-fit-" + mode.name().toLowerCase(java.util.Locale.ROOT) + "-"
                                 + orientation + "-" + (int) scale + ".png");
                     } finally {
@@ -2060,6 +2083,163 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             assertEquals("Completion doesn't move or resize the board", before, ViewportChecks.bounds(tagged("puzzle-board")));
             ViewportChecks.all(activity); close();
         }
+    }
+
+    private void assertPolishedControls(Mode mode) {
+        View board = require(tagged("puzzle-board"));
+        android.graphics.RectF grid = ViewportChecks.bounds(board);
+        if (activity.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            View group = (View) board.getParent();
+            View body = (View) group.getParent();
+            View rail = ((ViewGroup) body).getChildAt(1);
+            assertEquals("Side rail starts beside the board, not vertically centered",
+                    grid.top, ViewportChecks.bounds(rail).top, 2f);
+        }
+        ViewGroup actions = (ViewGroup) require(tagged("puzzle-actions"));
+        int height = -1;
+        for (int i = 0; i < actions.getChildCount(); i++) {
+            View action = actions.getChildAt(i);
+            if (action.getVisibility() == View.GONE) continue;
+            if (height < 0) height = action.getHeight();
+            assertEquals("Sibling actions have the same height", height, action.getHeight());
+        }
+        if (mode == Mode.TAKUZU) {
+            Button zero = (Button) binary(0);
+            assertEquals("0", zero.getText().toString());
+            tap(zero);
+            assertEquals("Selecting a tool never shifts its digit with an inline check", "0", zero.getText().toString());
+            assertTrue(zero.isSelected());
+            tap(zero);
+            assertFalse(zero.isSelected());
+        }
+        if (mode == Mode.NONOGRAM) {
+            TextView clue = (TextView) require(tagged("nonogram-row-0"));
+            assertEquals("Row runs end nearest the grid seam", android.view.Gravity.END,
+                    clue.getGravity() & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+        }
+    }
+
+    public void testPolishedHubMenusAndSettings() throws Exception {
+        activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        settle();
+        for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+            Instrumentation.ActivityMonitor monitor = getInstrumentation().addMonitor(MainActivity.class.getName(), null, false);
+            getInstrumentation().runOnMainSync(() -> activity.setRequestedOrientation(orientation));
+            Activity next = monitor.waitForActivityWithTimeout(3000); getInstrumentation().removeMonitor(monitor);
+            if (next != null) activity = next;
+            settle();
+            View sudoku = require(findText("Sudoku"));
+            float density = sudoku.getResources().getDisplayMetrics().density;
+            assertTrue("Hub choices have a capped readable width", sudoku.getWidth() <= 520 * density);
+            assertEquals("The capped hub list stays centered in the inset-safe viewport", ViewportChecks.bounds((View) sudoku.getParent().getParent()).centerX(),
+                    ViewportChecks.bounds(sudoku).centerX(), 2f);
+            capture("polish-hub-" + orientation + ".png");
+            tap(sudoku); settle();
+            TextView title = (TextView) require(findText("Sudoku"));
+            View content = (View) require(findText("Difficulty")).getParent();
+            assertEquals("Menu actions start at the top, not halfway down the page", android.view.Gravity.TOP,
+                    ((android.widget.LinearLayout) content).getGravity() & android.view.Gravity.VERTICAL_GRAVITY_MASK);
+            capture("polish-menu-" + orientation + ".png");
+            tap(require(findDescription("Settings"))); settle();
+            android.widget.Switch easy = (android.widget.Switch) require(findDescription("Auto notes: Easy"));
+            android.widget.Switch hard = (android.widget.Switch) require(findDescription("Auto notes: Hard"));
+            assertEquals(android.view.Gravity.START, easy.getGravity() & android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK);
+            assertEquals(ViewportChecks.bounds(easy).right, ViewportChecks.bounds(hard).right, 1f);
+            capture("polish-autonotes-" + orientation + ".png");
+            tap(require(findDescription("Back"))); settle();
+            tap(require(findDescription(getInstrumentation().getTargetContext().getString(R.string.back_to_puzzles)))); settle();
+            tap(require(findDescription("Settings"))); settle();
+            android.widget.RadioButton system = activity.findViewById(1100);
+            assertNotNull(system);
+            for (int i = 0; i < 3; i++) {
+                android.widget.RadioButton radio = activity.findViewById(1100 + i);
+                float textWidth = radio.getPaint().measureText(radio.getText().toString());
+                android.widget.RadioGroup group = (android.widget.RadioGroup) radio.getParent();
+                float slotCenter = group.getOrientation() == android.widget.RadioGroup.HORIZONTAL
+                        ? (i + .5f) * group.getWidth() / 3 : group.getWidth() / 2f;
+                float visibleCenter = radio.getLeft() + (radio.getCompoundPaddingLeft() + textWidth) / 2;
+                assertEquals("The actual native glyph and label share a centered slot", slotCenter, visibleCenter, 2f);
+                assertEquals("Appearance labels do not wrap", 1, radio.getLineCount());
+                assertTrue("Native radio hit height stays at least 48dp", radio.getHeight() >= 48 * density);
+            }
+            capture("polish-appearance-" + orientation + ".png");
+            tap(require(findDescription("Close settings"))); settle();
+        }
+        close();
+        for (Mode mode : Mode.values()) {
+            write(mode, fixture(mode, "initial"));
+            activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), PuzzleMenuActivity.class)
+                    .putExtra(PuzzleActivity.MODE, mode.name()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            menuReady(mode);
+            View resume = require(tagged("puzzle-resume"));
+            float density = resume.getResources().getDisplayMetrics().density;
+            float gap = ViewportChecks.bounds(resume).top - ViewportChecks.bounds(require(findDescription("Settings"))).bottom;
+            assertTrue("Submenu actions stay just below the pinned heading", gap >= 0 && gap < 80 * density);
+            capture("polish-menu-" + mode.name().toLowerCase(java.util.Locale.ROOT) + ".png");
+            close();
+        }
+    }
+
+    public void testResumeAndViewMenusMatchSudoku() throws Exception {
+        Map<File, byte[]> sudokuFiles = new LinkedHashMap<>();
+        File sudoku = new File(getInstrumentation().getTargetContext().getFilesDir(), "current-game.bin");
+        for (String suffix : new String[]{"", ".bak", ".new"}) {
+            File file = new File(sudoku.toString() + suffix);
+            sudokuFiles.put(file, file.exists() ? Files.readAllBytes(file.toPath()) : null);
+            if (file.exists()) assertTrue(file.delete());
+        }
+        try {
+            Game game = new Game(Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(41000)));
+            try (java.io.DataOutputStream out = new java.io.DataOutputStream(new FileOutputStream(sudoku))) { game.write(out); }
+            activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+            settle(); tap(require(findText("Sudoku"))); settle();
+            Button resume = (Button) require(tagged("puzzle-resume"));
+            String reference = ViewportChecks.resumeStyle(resume);
+            capture("polish-resume-sudoku.png"); close();
+            for (Mode mode : Mode.values()) {
+                for (String state : new String[]{"initial", "complete"}) {
+                    write(mode, fixture(mode, state));
+                    activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), PuzzleMenuActivity.class)
+                            .putExtra(PuzzleActivity.MODE, mode.name()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                    menuReady(mode);
+                    Button action = (Button) require(tagged("puzzle-resume"));
+                    assertEquals(state.equals("initial") ? "Resume" : "View", action.getText().toString());
+                    assertEquals("Same-role menu position, height, type and surface: " + mode, reference, ViewportChecks.resumeStyle(action));
+                    capture("polish-resume-" + mode.name().toLowerCase(java.util.Locale.ROOT) + "-" + state + ".png");
+                    close();
+                }
+            }
+        } finally {
+            close();
+            for (Map.Entry<File, byte[]> entry : sudokuFiles.entrySet()) {
+                if (entry.getValue() != null) Files.write(entry.getKey().toPath(), entry.getValue());
+                else if (entry.getKey().exists()) assertTrue(entry.getKey().delete());
+            }
+        }
+    }
+
+    public void testPolishedSelectionAndRippleStates() throws Exception {
+        write(Mode.TAKUZU, fixture(Mode.TAKUZU, "initial")); launch(Mode.TAKUZU);
+        Button zero = (Button) binary(0);
+        android.graphics.RectF before = ViewportChecks.bounds(zero);
+        tap(zero);
+        assertEquals("0", zero.getText().toString());
+        assertEquals(before, ViewportChecks.bounds(zero));
+        assertNotNull(((android.graphics.drawable.RippleDrawable) zero.getBackground()).findDrawableByLayerId(android.R.id.mask));
+        capture("polish-takuzu-selected.png");
+        getInstrumentation().runOnMainSync(() -> zero.setPressed(true)); SystemClock.sleep(120);
+        capture("polish-takuzu-pressed.png");
+        getInstrumentation().runOnMainSync(() -> zero.setPressed(false)); close();
+        write(Mode.MINESWEEPER, fixture(Mode.MINESWEEPER, "initial")); launch(Mode.MINESWEEPER);
+        View tool = require(tagged("puzzle-input"));
+        android.graphics.RectF slot = ViewportChecks.bounds(tool);
+        tap(tool); tap(square(0));
+        assertTrue(tool.getContentDescription().toString().contains("1 of"));
+        assertEquals(slot, ViewportChecks.bounds(tool));
+        capture("polish-mines-flag-count.png");
+        close();
     }
 
     private AccessibilityNodeInfo activeNode(String text) {

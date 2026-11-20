@@ -16,12 +16,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** Offline calendar schedule and independent, date-keyed Daily Word progress. */
 public final class DailyWord {
     public static final String SCHEDULE = "local-v1";
     public static final LocalDate EPOCH = LocalDate.of(2026, 11, 16);
     public static final int ABSENT = 0, PRESENT = 1, CORRECT = 2;
+    private static final Pattern WORD = Pattern.compile("[a-z]{5}");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private final Set<String> allowed;
     private final List<String> answers;
     private final Map<LocalDate, Day> days = new LinkedHashMap<>();
@@ -67,9 +70,9 @@ public final class DailyWord {
         Set<String> seen = new HashSet<>();
         BufferedReader reader = new BufferedReader(source);
         for (String line; (line = reader.readLine()) != null;) {
-            for (String word : line.trim().split("\\s+")) {
+            for (String word : WHITESPACE.split(line.trim())) {
                 if (word.isEmpty()) continue;
-                if (!word.matches("[a-z]{5}") || !seen.add(word)) {
+                if (!WORD.matcher(word).matches() || !seen.add(word)) {
                     throw new IOException("Daily Word contains invalid or duplicate dictionary data.");
                 }
                 words.add(word);

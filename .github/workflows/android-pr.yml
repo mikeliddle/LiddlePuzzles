@@ -112,7 +112,7 @@ jobs:
             if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED|shortMsg=|Process crashed' "smoke-$repetition.txt"; then
               exit 1
             fi
-            grep -Eq '^OK \(6 tests\)' "smoke-$repetition.txt"
+            grep -Eq '^OK \(8 tests\)' "smoke-$repetition.txt"
           done
       - name: Stop the emulator
         if: always()

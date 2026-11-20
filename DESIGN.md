@@ -76,6 +76,28 @@ Preserve Sudoku's single ordered 1-9 row and remaining counts; "below the grid"
 does not authorize splitting it into a different compact keyboard. Daily Word
 retains its three staggered rows. Landscape may place a board beside its control
 group, with controls top-aligned rather than separated by empty height.
+Gameplay titles balance the space occupied by corner actions so their center
+stays on the inset-safe viewport axis. Keep the header to one measured line,
+including enlarged type, rather than multiplying a whole toolbar's height by
+font scale. Corner navigation uses the same inset and circular ripple across
+gameplay, menus and settings; its 48dp target remains outside fitted play.
+Menus begin a modest distance below their pinned heading. On wide screens the
+hub's scrolling list has a centered, capped readable width.
+
+Separate a board from its input/action group by 12dp (16dp for Futoshiki's
+inequalities), and sibling actions by 8dp, before proportional fitting.
+Sibling action rows share a 56dp logical height; grid cells keep their existing
+geometry. Match ripple masks to the resting control shape. Align banks with
+the full board/clue envelope. Nonogram row clues end toward the grid seam;
+Takuzu's selection outline must not move its digit. Mines flag/count feedback
+is one centered group with a stable numeric slot. Unsubmitted Word letters
+are centered without an empty scoring-mark line; accepted marks stay unchanged.
+Sudoku's two-line bank fits its digit and scaled remaining count together.
+Word letters share one fitted text size based on the widest padded key, never
+per-letter sizing. Resume/View menu actions share the same 56dp minimum height,
+16dp top gap and outlined primary surface. A Word loss keeps its answer and
+frozen time together in the existing fitted clock slot rather than replacing
+the timer or inserting a new row.
 
 **The Full Puzzle Rule.** The full board, every clue and all essential normal
 gameplay controls must be visible together without scrolling or panning, in

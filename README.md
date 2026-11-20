@@ -132,7 +132,7 @@ default value clears the square. An armed digit writes repeatedly; switching it 
 last square. Tap the armed tool again or outside the board/bank to return to
 default tap/hold input. Holding still enters/clears 1 with a tool selected.
 Erase selects a repeated local eraser without cycling through digits.
-The armed tool has a strong outline and native selected state; digits also have a check mark. No stale cell-first
+The armed tool has a strong outline and native selected state without moving the digit. No stale cell-first
 entry target remains. Sudoku retains its own digit-first/cell-first behavior.
 When a Sudoku digit is selected, holding a square toggles that digit's note
 without changing the explicit Notes mode or also placing a number on release.
@@ -625,11 +625,13 @@ or work still waiting on storage, never a falsely acknowledged move.
 
 `engineTest` includes injected staging/final-sync/replacement/rollback failures
 and controlled timer/transition ordering. `PersistenceDeviceTests` exercises native
-writer failures/retry, confirmed replacement recreation and Settings isolation;
+writer failures/retry at replacement and final backup-retirement sync, confirmed
+replacement recreation and Settings isolation;
 it also deliberately stalls disk while exercising responsive input/recreation
-and retained quick edits/Undo. A separate host process replaces and restores a
-64 MiB rejected save under a 32 MiB heap.
-run it only against the isolated validation package with a durable outer backup.
+and retained quick edits/Undo, and confirms replacement of a rejected 64 MiB save
+with byte-exact rollback after an injected final-sync failure. A separate host
+process replaces and restores that size of rejected save under a 32 MiB heap.
+Run device cases only against the isolated validation package with a durable outer backup.
 Compilation is not proof that these device cases executed.
 
 The Android PR smoke workflow builds validation instrumentation and runs a

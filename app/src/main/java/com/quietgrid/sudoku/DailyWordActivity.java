@@ -224,11 +224,10 @@ public final class DailyWordActivity extends Activity {
         heading.addView(home(), new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView title = copy("Daily Word", 26, palette.ink);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setMinHeight(dp(52));
         title.setGravity(Gravity.CENTER);
         title.setSingleLine(true); title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
         title.setAutoSizeTextTypeUniformWithConfiguration(10, 26, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        heading.addView(title, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton large = iconButton("Large controls", R.drawable.ic_large_controls);
         large.setOnClickListener(v -> openLargeControls());
         heading.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -236,14 +235,18 @@ public final class DailyWordActivity extends Activity {
         settings.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)
                 .putExtra(MainActivity.OPEN_SETTINGS, true).putExtra(MainActivity.SETTINGS_GAME, "DAILY_WORD")));
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        ScreenChrome.centerTitle(heading, title);
         elapsed = copy("0:00", 18, palette.ink); elapsed.setTag("elapsed-time");
         elapsed.setGravity(Gravity.CENTER);
+        elapsed.setSingleLine(true); elapsed.setHorizontallyScrolling(false);
+        elapsed.setAutoSizeTextTypeUniformWithConfiguration(10, 18, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         elapsed.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         FrameLayout clockLine = new FrameLayout(this);
         clockLine.addView(elapsed, new FrameLayout.LayoutParams(-1, -1));
         root.addView(clockLine, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, fontScale))));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        body.setGravity(Gravity.TOP);
         root.addView(body, new LinearLayout.LayoutParams(-1, -2));
         board = new DailyWordBoard(this, palette);
         board.setTag("word-board");
@@ -253,8 +256,9 @@ public final class DailyWordActivity extends Activity {
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL); controls.setTag("word-controls");
         controls.setPadding(dp(4), 0, dp(4), dp(4));
-        if (!wide) body.addView(controls, new LinearLayout.LayoutParams(-1, -2));
-        else body.addView(controls, new LinearLayout.LayoutParams(0, -2, 1.1f));
+        LinearLayout.LayoutParams controlsLayout = new LinearLayout.LayoutParams(wide ? 0 : -1, -2, wide ? 1.1f : 0);
+        if (wide) controlsLayout.setMarginStart(dp(12)); else controlsLayout.topMargin = dp(12);
+        body.addView(controls, controlsLayout);
         status = copy("", 16, palette.ink);
         status.setTag("word-feedback");
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
@@ -267,6 +271,7 @@ public final class DailyWordActivity extends Activity {
                 Button key = button(String.valueOf(letter).toUpperCase(Locale.ROOT), false);
                 key.setTag(letter);
                 key.setTextSize(16);
+                key.setPadding(dp(3), dp(4), dp(3), dp(4));
                 key.setOnClickListener(v -> input(letter, false, false));
                 letters.add(key);
             }
@@ -298,13 +303,13 @@ public final class DailyWordActivity extends Activity {
         DailyWord.Day day = game.day(date);
         board.show(game, day);
         boolean finished = game.finished(day);
-        String result = finished && !game.won(day)
-                ? "The word was " + game.answer(date).toUpperCase(Locale.ROOT) + "." : "";
+        String result = lossAnswer();
         String feedback = message != null ? message : result;
         status.setText(feedback);
-        status.setVisibility(feedback.isEmpty() ? View.INVISIBLE : View.VISIBLE);
+        boolean showMessage = message != null && !message.isEmpty();
+        status.setVisibility(showMessage ? View.VISIBLE : View.INVISIBLE);
         status.setTextColor(message != null ? palette.error : palette.ink);
-        elapsed.setVisibility(feedback.isEmpty() ? View.VISIBLE : View.INVISIBLE);
+        elapsed.setVisibility(showMessage ? View.INVISIBLE : View.VISIBLE);
         int[] states = game.keyboard(day);
         for (Button key : letters) {
             char letter = (Character) key.getTag();
@@ -434,9 +439,16 @@ public final class DailyWordActivity extends Activity {
         playTime.setRunning(resumed && focused && game != null && !game.finished(game.day(date)));
         if (elapsed == null) return;
         long millis = playTime.elapsedMillis();
-        String label = ActivePlayTimer.label(millis);
+        String answer = game == null ? "" : lossAnswer();
+        String label = ActivePlayTimer.label(millis) + (answer.isEmpty() ? "" : " \u00b7 " + answer);
         if (!android.text.TextUtils.equals(elapsed.getText(), label)) elapsed.setText(label);
-        elapsed.setContentDescription(ActivePlayTimer.description(millis));
+        elapsed.setContentDescription(ActivePlayTimer.description(millis) + (answer.isEmpty() ? "" : ". " + answer));
+    }
+
+    private String lossAnswer() {
+        DailyWord.Day day = game.day(date);
+        return game.finished(day) && !game.won(day)
+                ? "The word was " + game.answer(date).toUpperCase(Locale.ROOT) + "." : "";
     }
 
     private void checkpointTime() {
@@ -536,9 +548,7 @@ public final class DailyWordActivity extends Activity {
         button.setMinimumWidth(dp(48));
         button.setStateListAnimator(null);
         button.setElevation(0);
-        button.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((palette.ink & 0x00FFFFFF) | 0x30000000), null,
-                new android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE)));
+        ControlStyle.navigation(button, android.content.res.ColorStateList.valueOf((palette.ink & 0x00FFFFFF) | 0x30000000));
         return button;
     }
 

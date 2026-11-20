@@ -85,7 +85,7 @@ public final class PuzzleMenuActivity extends Activity {
             return insets;
         });
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); root.addView(scroll);
-        LinearLayout content = column(); content.setPadding(dp(16), dp(12), dp(16), dp(16)); content.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout content = column(); content.setPadding(dp(16), dp(12), dp(16), dp(16)); content.setGravity(Gravity.TOP);
         scroll.addView(content, new ScrollView.LayoutParams(-1, -1));
         ImageButton back = icon("Back to Liddle Puzzles", R.drawable.ic_back); back.setOnClickListener(v -> finish());
         LinearLayout heading = new LinearLayout(this); heading.setGravity(Gravity.TOP);
@@ -102,7 +102,8 @@ public final class PuzzleMenuActivity extends Activity {
             String saved = mode.settingLabel(mode.settingOf(progress.game)) + " \u00b7 " + ActivePlayTimer.label(progress.elapsedMillis);
             Button resume = button(progress.game.solved() || progress.game.lost() ? "View" : "Resume", true);
             resume.setContentDescription(resume.getText() + " " + mode.title + ", " + saved);
-            resume.setTag("puzzle-resume"); resume.setOnClickListener(v -> play(null)); add(content, resume, 16);
+            resume.setTag("puzzle-resume"); resume.setOnClickListener(v -> play(null));
+            ControlStyle.menuResume(content, resume, palette);
         }
         if (failed) {
             TextView error = text("Saved progress could not be read. It has not been replaced.", 16);
@@ -158,8 +159,8 @@ public final class PuzzleMenuActivity extends Activity {
     private ImageButton icon(String name, int resource) {
         ImageButton view = new ImageButton(this); view.setImageResource(resource); view.setContentDescription(name); view.setTooltipText(name);
         view.setImageTintList(android.content.res.ColorStateList.valueOf(palette.accent)); view.setPadding(dp(12), dp(12), dp(12), dp(12));
-        view.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000), null,
-                new android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))); return view;
+        ControlStyle.navigation(view, android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000));
+        return view;
     }
     private void add(LinearLayout parent, View view, int gap) {
         LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(-1, -2); slot.topMargin = dp(gap); parent.addView(view, slot);

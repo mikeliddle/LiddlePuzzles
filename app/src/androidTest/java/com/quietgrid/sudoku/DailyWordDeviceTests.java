@@ -203,7 +203,9 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
     private View effect() { return activity.findViewById(android.R.id.content).findViewWithTag("completion-effect"); }
 
     private void awaitElapsed(java.time.LocalDate date, long minimum) throws Exception {
-        for (int i = 0; i < 30 && restored().day(date).elapsedMillis() < minimum; i++) SystemClock.sleep(100);
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (SystemClock.uptimeMillis() < deadline && restored().day(date).elapsedMillis() < minimum)
+            SystemClock.sleep(100);
         assertTrue("Elapsed checkpoints reach the requested active interval", restored().day(date).elapsedMillis() >= minimum);
     }
 
@@ -426,7 +428,8 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
                         ((DailyWordActivity) activity).build(); ((DailyWordActivity) activity).refresh(null);
                     });
                     getInstrumentation().waitForIdleSync(); SystemClock.sleep(250);
-                    ViewportChecks.all(activity);
+                    ViewportChecks.polishedGameplay(activity);
+                    assertKeyboardLayout();
                     View board = activity.findViewById(android.R.id.content).findViewWithTag("word-board");
                     android.graphics.RectF before = ViewportChecks.bounds(board);
                     tap("Enter");
@@ -453,10 +456,10 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         View root = activity.findViewById(android.R.id.content);
         View board = root.findViewWithTag("word-board"), controls = root.findViewWithTag("word-controls");
         assertNotNull(board); assertNotNull(controls);
-        int[] a = new int[2], b = new int[2]; board.getLocationOnScreen(a); controls.getLocationOnScreen(b);
+        android.graphics.RectF a = ViewportChecks.bounds(board), b = ViewportChecks.bounds(controls);
         float density = board.getResources().getDisplayMetrics().density;
-        float below = (b[1] - a[1] - board.getHeight()) / density;
-        float beside = (b[0] - a[0] - board.getWidth()) / density;
+        float below = (b.top - a.bottom) / density;
+        float beside = (b.left - a.right) / density;
         assertTrue("Keyboard and grid stay together without a bottom spacer",
                 below >= 0 && below <= 16 || beside >= 0 && beside <= 16);
         Button reference = (Button) find("Q");
@@ -469,6 +472,9 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
             assertEquals("Uniform letter height: " + letter, reference.getHeight(), key.getHeight());
             assertEquals("Uniform letter text: " + letter, reference.getTextSize(), key.getTextSize(), 0f);
             assertEquals(reference.getTypeface(), key.getTypeface());
+            assertTrue("Letters keep real padding inside the key outline", key.getPaddingLeft() >= 3 * density
+                    && key.getPaddingRight() >= 3 * density);
+            ViewportChecks.textFits(key);
             assertInside(key);
             int[] position = new int[2];
             key.getLocationOnScreen(position);
@@ -490,6 +496,51 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
                 geometry.toString().getBytes(StandardCharsets.UTF_8));
     }
 
+    public void testLossKeepsFrozenTimeAndAnswerThroughResizeAndResume() throws Throwable {
+        launchWord(); fixed("2026-11-16T12:00:00Z");
+        for (String guess : new String[]{"CRANE", "GRACE", "APPLE", "BREAD", "HOUSE"}) {
+            type(guess); tap("Enter");
+        }
+        View board = activity.findViewById(android.R.id.content).findViewWithTag("word-board");
+        View controls = activity.findViewById(android.R.id.content).findViewWithTag("word-controls");
+        android.graphics.RectF boardBefore = ViewportChecks.bounds(board), controlsBefore = ViewportChecks.bounds(controls);
+        type("SLATE"); tap("Enter");
+        long frozen = restored().day(DailyWord.EPOCH).elapsedMillis();
+        assertEquals("Loss does not move the board", boardBefore, ViewportChecks.bounds(board));
+        assertEquals("Loss does not move the keyboard", controlsBefore, ViewportChecks.bounds(controls));
+        assertVisibleLossClock(frozen);
+        SystemClock.sleep(1100); assertVisibleLossClock(frozen);
+        for (int orientation : new int[]{ActivityInfo.SCREEN_ORIENTATION_PORTRAIT, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE}) {
+            rotate(orientation); fixed("2026-11-16T12:00:00Z");
+            Configuration prior = new Configuration(activity.getResources().getConfiguration());
+            try {
+                for (float scale : new float[]{1f, 2f}) {
+                    runTestOnUiThread(() -> {
+                        Configuration changed = new Configuration(prior); changed.fontScale = scale;
+                        activity.getResources().updateConfiguration(changed, activity.getResources().getDisplayMetrics());
+                        ((DailyWordActivity) activity).build(); ((DailyWordActivity) activity).refresh(null);
+                    });
+                    getInstrumentation().waitForIdleSync(); SystemClock.sleep(200);
+                    assertVisibleLossClock(frozen); ViewportChecks.all(activity); assertKeyboardLayout();
+                    capture("daily-word-loss-clock-" + orientation + "-" + (int) scale + ".png");
+                }
+            } finally { runTestOnUiThread(() ->
+                    activity.getResources().updateConfiguration(prior, activity.getResources().getDisplayMetrics())); }
+        }
+        close(); launchWord(); fixed("2026-11-16T12:00:00Z");
+        assertVisibleLossClock(frozen);
+        assertNull("A restored loss never celebrates", effect());
+    }
+
+    private void assertVisibleLossClock(long frozen) throws Exception {
+        TextView timer = activity.findViewById(android.R.id.content).findViewWithTag("elapsed-time");
+        assertEquals(View.VISIBLE, timer.getVisibility());
+        assertEquals(ActivePlayTimer.label(frozen) + " \u00b7 The word was BLESS.", timer.getText().toString());
+        assertTrue(timer.getContentDescription().toString().contains("The word was BLESS."));
+        assertEquals("The completed clock never restarts", frozen, restored().day(DailyWord.EPOCH).elapsedMillis());
+        ViewportChecks.textFits(timer); assertInside(timer);
+    }
+
     private void assertContrast() {
         for (boolean dark : new boolean[]{false, true}) {
             MainActivity.Palette palette = new MainActivity.Palette(dark, 3);
@@ -504,10 +555,11 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
 
     private void assertInside(View view) {
         Rect bounds = new Rect();
+        android.graphics.RectF expected = ViewportChecks.bounds(view);
         assertTrue(view.getGlobalVisibleRect(bounds));
-        assertEquals(view.getWidth(), bounds.width());
+        assertEquals(expected.width(), bounds.width(), 2f);
         assertEquals("Fully visible control: " + view.getContentDescription() + ", bounds " + bounds,
-                view.getHeight(), bounds.height());
+                expected.height(), bounds.height(), 2f);
     }
 
     public void testWordLetterAndAcceptedRowMotion() throws Throwable {
@@ -516,7 +568,13 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         assertNotNull(board); assertFalse("Opening is static", board.feedbackActive());
         tap("A"); assertTrue("Real key touch starts letter settle", board.feedbackActive());
         PuzzleDeviceTests.motionFrames(getInstrumentation(), "motion-word-letter", board);
-        type("PPLE"); tap("Enter");
+        type("PPLE");
+        assertEquals("Repeated letters target keys, not matching unsubmitted tiles", "apple", restored().day(DailyWord.EPOCH).draft());
+        assertSame("Input retains the current board", board, findType(activity.getWindow().getDecorView(), DailyWordBoard.class));
+        assertTrue("Accepted-row input has window focus", activity.hasWindowFocus());
+        capture("polish-word-centered-draft.png");
+        tap("Enter");
+        assertEquals("Real Enter durably accepts the row", 1, restored().day(DailyWord.EPOCH).guesses().size());
         assertTrue("Accepted row has one staggered settle", board.feedbackActive());
         assertEquals(1, restored().day(DailyWord.EPOCH).guesses().size());
         PuzzleDeviceTests.motionFrames(getInstrumentation(), "motion-word-guess", board);
@@ -574,13 +632,33 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
             word.testZone = ZoneOffset.UTC;
             word.checkDate();
         });
-        getInstrumentation().waitForIdleSync();
+        awaitWordReady(Instant.parse(instant).atZone(ZoneOffset.UTC).toLocalDate());
     }
 
-    private void launchWord() {
+    private void awaitWordReady(java.time.LocalDate expectedDate) throws Exception {
+        java.lang.reflect.Field date = DailyWordActivity.class.getDeclaredField("date");
+        java.lang.reflect.Field session = DailyWordActivity.class.getDeclaredField("saveSession");
+        date.setAccessible(true); session.setAccessible(true);
+        boolean[] ready = {false};
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        do {
+            getInstrumentation().runOnMainSync(() -> {
+                try {
+                    View key = find("Q");
+                    ready[0] = key != null && key.isLaidOut()
+                            && (expectedDate == null || expectedDate.equals(date.get(activity)))
+                            && ((SaveSession<?>) session.get(activity)).idle();
+                } catch (IllegalAccessException ex) { throw new AssertionError(ex); }
+            });
+            if (!ready[0]) SystemClock.sleep(25);
+        } while (!ready[0] && SystemClock.uptimeMillis() < deadline);
+        assertTrue("Word loading and any date transition are durably ready", ready[0]);
+    }
+
+    private void launchWord() throws Exception {
         activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), DailyWordActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        getInstrumentation().waitForIdleSync();
+        awaitWordReady(null);
     }
 
     private void close() {
@@ -598,17 +676,19 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
     private void tap(String name) {
         View view = find(name);
         assertNotNull("Visible native control: " + name, view);
-        int[] point = new int[2];
-        view.getLocationOnScreen(point);
+        android.graphics.RectF point = ViewportChecks.bounds(view);
         long time = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN,
-                point[0] + view.getWidth() / 2f, point[1] + view.getHeight() / 2f, 0);
-        MotionEvent up = MotionEvent.obtain(time, time + 50, MotionEvent.ACTION_UP, down.getX(), down.getY(), 0);
+                point.centerX(), point.centerY(), 0);
+        MotionEvent up = null;
         try {
             getInstrumentation().sendPointerSync(down);
+            SystemClock.sleep(60);
+            up = MotionEvent.obtain(time, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, down.getX(), down.getY(), 0);
             getInstrumentation().sendPointerSync(up);
-        } finally { down.recycle(); up.recycle(); }
+        } finally { down.recycle(); if (up != null) up.recycle(); }
         getInstrumentation().waitForIdleSync();
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
         SystemClock.sleep(40);
     }
 
@@ -620,7 +700,14 @@ public final class DailyWordDeviceTests extends InstrumentationTestCase {
         return null;
     }
 
-    private View find(String text) { return find(text, activity.getWindow().getDecorView()); }
+    private View find(String text) {
+        View root = activity.getWindow().getDecorView();
+        if (text.length() == 1 && text.charAt(0) >= 'A' && text.charAt(0) <= 'Z') {
+            View keyboard = root.findViewWithTag("word-controls");
+            if (keyboard != null) return find(text, keyboard);
+        }
+        return find(text, root);
+    }
     private View find(String text, View view) {
         if ((view.getContentDescription() != null && text.contentEquals(view.getContentDescription()))
                 || (view instanceof TextView && text.contentEquals(((TextView) view).getText()))) return view;

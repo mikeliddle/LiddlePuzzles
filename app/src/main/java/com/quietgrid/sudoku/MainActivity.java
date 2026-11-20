@@ -210,8 +210,7 @@ public final class MainActivity extends Activity {
                     right = Math.max(right, cutout.getSafeInsetRight()); bottom = Math.max(bottom, cutout.getSafeInsetBottom());
                 }
             }
-            view.setPadding(left + dp(horizontal ? 12 : 8), top + dp(4),
-                    right + dp(horizontal ? 12 : 8), bottom + dp(4));
+            view.setPadding(left, top, right, bottom);
             return insets;
         });
         setContentView(root);
@@ -234,7 +233,7 @@ public final class MainActivity extends Activity {
     }
 
     private void buildHub() {
-        LinearLayout content = scrollContent(root(false));
+        LinearLayout content = scrollContent(root(false), dp(520));
         content.setGravity(Gravity.TOP);
         LinearLayout heading = row();
         heading.setGravity(Gravity.TOP);
@@ -289,14 +288,25 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout scrollContent(LinearLayout root) {
+        return scrollContent(root, Integer.MAX_VALUE);
+    }
+
+    private LinearLayout scrollContent(LinearLayout root, int maximumWidth) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, -1));
-        LinearLayout content = new LinearLayout(this);
+        LinearLayout content = new LinearLayout(this) {
+            @Override protected void onMeasure(int width, int height) {
+                super.onMeasure(View.MeasureSpec.makeMeasureSpec(Math.min(View.MeasureSpec.getSize(width), maximumWidth),
+                        View.MeasureSpec.getMode(width)), height);
+            }
+        };
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(16), dp(12), dp(16), dp(16));
-        content.setGravity(Gravity.CENTER_VERTICAL);
-        scroll.addView(content, new ScrollView.LayoutParams(-1, -1));
+        content.setGravity(Gravity.TOP);
+        ScrollView.LayoutParams layout = new ScrollView.LayoutParams(-1, -1);
+        layout.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+        scroll.addView(content, layout);
         return content;
     }
 
@@ -320,7 +330,8 @@ public final class MainActivity extends Activity {
             Button resume = button("Resume", true);
             resume.setContentDescription("Resume " + game.difficulty.label + " Sudoku, " + time(game.elapsedMillis));
             resume.setOnClickListener(v -> navigate(Screen.PLAY));
-            addControl(content, resume, 60, 16);
+            resume.setTag("puzzle-resume");
+            ControlStyle.menuResume(content, resume, palette);
         }
         addCopy(content, "Difficulty", 22, palette.ink, 12);
         for (Sudoku.Difficulty difficulty : Sudoku.Difficulty.values()) {
@@ -367,7 +378,7 @@ public final class MainActivity extends Activity {
         title.setSingleLine(true);
         title.setAutoSizeTextTypeUniformWithConfiguration(10, 25, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
-        header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+        header.addView(title, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton large = navigationButton("Large controls", R.drawable.ic_large_controls);
         large.setOnClickListener(v -> openLargeControls());
         header.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -375,6 +386,7 @@ public final class MainActivity extends Activity {
         gameSettingsButton = settings;
         settings.setOnClickListener(v -> openSettings());
         header.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        ScreenChrome.centerTitle(header, title);
         panel.addView(header);
         LinearLayout details = row();
         clock = text("", 14, palette.muted);
@@ -389,6 +401,8 @@ public final class MainActivity extends Activity {
 
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.VERTICAL); controls.setTag("sudoku-controls");
+        LinearLayout.LayoutParams controlsLayout = new LinearLayout.LayoutParams(-1, -2);
+        controlsLayout.topMargin = dp(12);
         LinearLayout tools = row();
         undoButton = iconButton("Undo", R.drawable.ic_undo);
         undoButton.setOnClickListener(v -> {
@@ -416,13 +430,15 @@ public final class MainActivity extends Activity {
         for (View tool : new View[]{undoButton, eraseButton, notesButton}) {
             tool.setPadding(dp(16), dp(16), dp(16), dp(16));
         }
-        tools.addView(undoButton, weighted(56));
-        tools.addView(eraseButton, weighted(56));
+        LinearLayout.LayoutParams undoLayout = weighted(56); undoLayout.setMarginEnd(dp(8));
+        LinearLayout.LayoutParams eraseLayout = weighted(56); eraseLayout.setMarginEnd(dp(8));
+        tools.addView(undoButton, undoLayout);
+        tools.addView(eraseButton, eraseLayout);
         LinearLayout.LayoutParams notesLayout = weighted(56);
         notesLayout.weight = 1.4f;
         tools.addView(notesButton, notesLayout);
         controls.addView(tools);
-        panel.addView(controls);
+        panel.addView(controls, controlsLayout);
 
         LinearLayout bankRow = row(); bankRow.setTag("sudoku-bank");
         for (int d = 1; d <= 9; d++) {
@@ -431,13 +447,18 @@ public final class MainActivity extends Activity {
             number.setTextSize(22);
             number.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
             number.setPadding(0, 0, 0, 0);
+            number.setMaxLines(2);
+            number.setIncludeFontPadding(false);
+            number.setAutoSizeTextTypeUniformWithConfiguration(8, 22, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            number.setHorizontallyScrolling(false);
             number.setOnClickListener(v -> board.chooseDigit(digit));
             bank[d - 1] = number;
             LinearLayout.LayoutParams lp = weighted(64);
             lp.setMargins(dp(1), dp(2), dp(1), dp(2));
             bankRow.addView(number, lp);
         }
-        controls.addView(bankRow);
+        LinearLayout.LayoutParams bankLayout = new LinearLayout.LayoutParams(-1, -2); bankLayout.topMargin = dp(8);
+        controls.addView(bankRow, bankLayout);
         panel.removeView(header);
         root.setPadding(dp(8), dp(4), dp(8), dp(4));
         ((android.view.ViewGroup) root.getParent()).removeView(root);
@@ -534,7 +555,7 @@ public final class MainActivity extends Activity {
             Button number = bank[d - 1];
             boolean available = game.remaining(d) > 0;
             android.text.SpannableString label = new android.text.SpannableString(d + "\n" + game.remaining(d));
-            label.setSpan(new android.text.style.AbsoluteSizeSpan(11, true), 2, label.length(), 0);
+            label.setSpan(new android.text.style.RelativeSizeSpan(.5f), 2, label.length(), 0);
             number.setText(label);
             boolean armed = game.armedDigit == d;
             number.setSelected(armed);
@@ -658,18 +679,32 @@ public final class MainActivity extends Activity {
         ScreenChrome.pin(content, heading);
         if (settingsGame != null) { gameSettings(content); return; }
         addCopy(content, "Appearance", 22, palette.ink, 8);
-        RadioGroup appearance = new RadioGroup(this);
+        RadioGroup appearance = new RadioGroup(this) {
+            @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+                super.onLayout(changed, left, top, right, bottom);
+                if (getOrientation() != HORIZONTAL) return;
+                int width = getWidth() - getPaddingLeft() - getPaddingRight();
+                for (int i = 0; i < getChildCount(); i++) {
+                    View child = getChildAt(i);
+                    int slot = getLayoutDirection() == View.LAYOUT_DIRECTION_RTL ? getChildCount() - 1 - i : i;
+                    int x = getPaddingLeft() + (2 * slot + 1) * width / (2 * getChildCount()) - child.getMeasuredWidth() / 2;
+                    child.layout(x, child.getTop(), x + child.getMeasuredWidth(), child.getBottom());
+                }
+            }
+        };
+        appearance.setGravity(Gravity.CENTER_HORIZONTAL);
         boolean largeType = getResources().getConfiguration().fontScale > 1.3f;
         appearance.setOrientation(largeType ? RadioGroup.VERTICAL : RadioGroup.HORIZONTAL);
         String[] appearances = {"System", "Light", "Dark"};
         for (int i = 0; i < appearances.length; i++) {
             RadioButton radio = new RadioButton(this);
+            radio.setPadding(0, 0, 0, 0);
             radio.setId(1100 + i);
-            radio.setText(appearances[i]); radio.setTextSize(16); radio.setTextColor(palette.ink); radio.setGravity(Gravity.CENTER);
+            radio.setSingleLine(true);
+            radio.setText(appearances[i]); radio.setTextSize(16); radio.setTextColor(palette.ink); radio.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
             radio.setButtonTintList(android.content.res.ColorStateList.valueOf(palette.accent));
             radio.setMinHeight(dp(48));
-            appearance.addView(radio, largeType ? new RadioGroup.LayoutParams(-1, -2)
-                    : new RadioGroup.LayoutParams(0, -2, 1));
+            appearance.addView(radio, new RadioGroup.LayoutParams(-2, -2));
         }
         appearance.check(1100 + preferences.getInt("appearance", 0));
         appearance.setOnCheckedChangeListener((group, checked) -> {
@@ -1165,8 +1200,7 @@ public final class MainActivity extends Activity {
 
     private ImageButton navigationButton(String name, int icon) {
         ImageButton button = iconButton(name, icon);
-        button.setBackground(new android.graphics.drawable.RippleDrawable(
-                rippleColor(), null, background(Color.WHITE, dp(24))));
+        ControlStyle.navigation(button, rippleColor());
         return button;
     }
 
@@ -1179,7 +1213,7 @@ public final class MainActivity extends Activity {
     private Switch toggle(String label, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
         Switch toggle = new Switch(this);
         toggle.setText(label); toggle.setTextSize(16); toggle.setTextColor(palette.ink);
-        toggle.setGravity(Gravity.CENTER);
+        toggle.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         toggle.setTrackTintList(new android.content.res.ColorStateList(
                 new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
                 new int[]{palette.accent, palette.line}));

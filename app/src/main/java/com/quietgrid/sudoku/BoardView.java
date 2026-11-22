@@ -326,7 +326,7 @@ public final class BoardView extends View {
                 pressedCell = cellAt(event.getX(), event.getY()); pressedPointer = event.getPointerId(0);
                 pressedX = event.getX(); pressedY = event.getY();
                 if (pressedCell >= 0 && game != null && effectiveArmedDigit() != 0)
-                    postDelayed(hold, BinaryPress.timeout());
+                    postDelayed(hold, BinaryPress.timeout(getContext()));
                 return true;
             case MotionEvent.ACTION_MOVE:
                 if (event.getPointerCount() != 1 || event.getPointerId(0) != pressedPointer

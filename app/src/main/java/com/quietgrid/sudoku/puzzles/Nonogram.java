@@ -28,10 +28,14 @@ public final class Nonogram implements UndoablePuzzle {
     @Override public boolean solved() {
         int n = size();
         for (int i = 0; i < n; i++) {
-            if (!Arrays.equals(rows[i], runs(line(values, n, i, false), n))
-                    || !Arrays.equals(columns[i], runs(line(values, n, i, true), n))) return false;
+            if (!lineSatisfied(i, false) || !lineSatisfied(i, true)) return false;
         }
         return true;
+    }
+
+    /** Filled runs match the public clue; unfilled squares need not be crossed. */
+    public boolean lineSatisfied(int index, boolean column) {
+        return Arrays.equals((column ? columns : rows)[index], runs(line(values, size(), index, column), size()));
     }
 
     /** Rows first, then columns; undecided squares constrain neither fill nor empty. */

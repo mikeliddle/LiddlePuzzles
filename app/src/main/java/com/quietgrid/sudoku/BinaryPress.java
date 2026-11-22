@@ -1,6 +1,7 @@
 package com.quietgrid.sudoku;
 
 import android.view.MotionEvent;
+import android.content.Context;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -9,11 +10,20 @@ import android.widget.Button;
 /** Gameplay holds run sooner while retaining native long-click accessibility actions. */
 final class BinaryPress {
     private BinaryPress() {}
+    static final String SETTING = "holdDelayPercent";
+    static final int DEFAULT_PERCENT = 50;
 
-    static int timeout() { return timeout(ViewConfiguration.getLongPressTimeout()); }
+    static int percent(Context context) {
+        return Math.max(20, Math.min(100, context.getSharedPreferences("settings", 0)
+                .getInt(SETTING, DEFAULT_PERCENT)));
+    }
 
-    static int timeout(int systemTimeout) {
-        return systemTimeout > 500 ? systemTimeout : Math.round(systemTimeout * .8f);
+    static int timeout(Context context) {
+        return timeout(ViewConfiguration.getLongPressTimeout(), percent(context));
+    }
+
+    static int timeout(int systemTimeout, int percent) {
+        return (int) Math.round(systemTimeout * (Math.max(20, Math.min(100, percent)) / 100.0));
     }
 
     @android.annotation.SuppressLint("ClickableViewAccessibility")
@@ -41,7 +51,7 @@ final class BinaryPress {
                 if (action == MotionEvent.ACTION_DOWN) {
                     button.removeCallbacks(hold); canceled = held = false;
                     x = event.getX(); y = event.getY();
-                    button.postDelayed(hold, timeout());
+                    button.postDelayed(hold, timeout(button.getContext()));
                 }
                 if (event.getPointerCount() > 1 || action == MotionEvent.ACTION_CANCEL
                         || action == MotionEvent.ACTION_MOVE && Math.hypot(event.getX() - x, event.getY() - y)

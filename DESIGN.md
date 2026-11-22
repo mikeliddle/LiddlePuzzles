@@ -92,6 +92,10 @@ the full board/clue envelope. Nonogram row clues end toward the grid seam;
 Takuzu's selection outline must not move its digit. Mines flag/count feedback
 is one centered group with a stable numeric slot. Unsubmitted Word letters
 are centered without an empty scoring-mark line; accepted marks stay unchanged.
+Nonogram clues keep a quiet theme tint and solid accent outline while their
+filled runs exactly match the public clue, even if other cells remain blank.
+Feasible incomplete lines remain neutral; contradictions retain red dashed
+outlines. This static state is restored without replaying decided-line motion.
 Sudoku's two-line bank fits its digit and scaled remaining count together.
 Word letters share one fitted text size based on the widest padded key, never
 per-letter sizing. Resume/View menu actions share the same 56dp minimum height,
@@ -259,9 +263,10 @@ Cancel pending input on movement out of the target, multitouch, focus loss,
 detach or lifecycle interruption. An already committed hold is a real edit with
 the mode's normal save/Undo semantics; cancellation does not silently undo it.
 Keep explicit tools and keyboard/accessibility actions so holding is never the
-only route. Gameplay secondary holds use 80% of Android's touch-and-hold timeout
-when it is at most 500ms (500ms becomes 400ms; 400ms becomes 320ms).
-Longer accessibility delays remain unchanged. This is local to these gameplay
+only route. The global Gameplay hold-delay slider uses 20-100% of Android's
+touch-and-hold timeout, defaulting to 50% (500ms becomes 250ms).
+The same percentage applies to longer system delays; 100% restores Android timing.
+The native slider retains keyboard and accessibility range actions. This is local to these gameplay
 gestures, not a device setting or tooltip change. Keep no sound/vibration and no new caption
 or layout change to teach the gesture. Do not invent holds for unrelated actions.
 

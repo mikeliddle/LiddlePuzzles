@@ -107,7 +107,7 @@ final class SlitherlinkBoard extends View {
             cancelPress(); canceled = held = false;
             downX = event.getX(); downY = event.getY();
             pressed = nearest(downX, downY);
-            if (pressed >= 0) postDelayed(hold, BinaryPress.timeout());
+            if (pressed >= 0) postDelayed(hold, BinaryPress.timeout(getContext()));
             return pressed >= 0;
         }
         if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {

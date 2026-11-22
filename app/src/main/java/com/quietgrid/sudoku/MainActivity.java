@@ -29,6 +29,7 @@ import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -758,6 +759,34 @@ public final class MainActivity extends Activity {
             }
             addControl(content, colors, 56, 8);
         }
+        addCopy(content, "Gameplay", 22, palette.ink, 12);
+        TextView holdLabel = text("", 16, palette.ink);
+        SeekBar holdDelay = new SeekBar(this);
+        holdDelay.setId(View.generateViewId());
+        holdDelay.setTag("hold-delay");
+        holdLabel.setLabelFor(holdDelay.getId());
+        holdDelay.setMin(20); holdDelay.setMax(100); holdDelay.setKeyProgressIncrement(1);
+        holdDelay.setProgress(BinaryPress.percent(this));
+        holdDelay.setProgressTintList(android.content.res.ColorStateList.valueOf(palette.accent));
+        holdDelay.setThumbTintList(android.content.res.ColorStateList.valueOf(palette.accent));
+        holdDelay.setContentDescription("Hold delay, percent of Android touch-and-hold delay");
+        Runnable showHoldDelay = () -> holdLabel.setText("Hold delay: " + holdDelay.getProgress() + "% ("
+                + BinaryPress.timeout(android.view.ViewConfiguration.getLongPressTimeout(), holdDelay.getProgress()) + " ms)");
+        showHoldDelay.run();
+        content.addView(holdLabel);
+        addControl(content, holdDelay, 48, 0);
+        addCopy(content, "20-100% of Android's touch-and-hold delay. 100% uses Android timing.", 14, palette.muted, 0);
+        holdDelay.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            private boolean tracking;
+            @Override public void onStartTrackingTouch(SeekBar slider) { tracking = true; }
+            @Override public void onStopTrackingTouch(SeekBar slider) {
+                tracking = false; persistHoldDelay(slider, showHoldDelay);
+            }
+            @Override public void onProgressChanged(SeekBar slider, int progress, boolean fromUser) {
+                showHoldDelay.run();
+                if (fromUser && !tracking) persistHoldDelay(slider, showHoldDelay);
+            }
+        });
         addCopy(content, "Games", 22, palette.ink, 12);
         String[] ids = {"SUDOKU", "DAILY_WORD", "TAKUZU", "NONOGRAM", "FUTOSHIKI", "MINESWEEPER", "NUMBERLINK", "SLITHERLINK"};
         String[] names = {"Sudoku", "Daily Word", "Takuzu", "Nonograms", "Futoshiki", "Minesweeper", "Numberlink", "Slitherlink"};
@@ -836,6 +865,27 @@ public final class MainActivity extends Activity {
                 throw new IOException("Could not save gameplay preference");
             }
         }, () -> {}, ex -> preferenceError(ex));
+    }
+
+    private void persistHoldDelay(SeekBar slider, Runnable showValue) {
+        int percent = slider.getProgress();
+        preferencesQueue().commit(() -> {
+            boolean existed = preferences.contains(BinaryPress.SETTING);
+            int previous = preferences.getInt(BinaryPress.SETTING, BinaryPress.DEFAULT_PERCENT);
+            if (!preferences.edit().putInt(BinaryPress.SETTING, percent).commit()) {
+                SharedPreferences.Editor rollback = preferences.edit();
+                if (existed) rollback.putInt(BinaryPress.SETTING, previous); else rollback.remove(BinaryPress.SETTING);
+                if (!rollback.commit()) Log.e("Sudoku", "Hold delay preference rollback failed");
+                throw new IOException("Could not save hold delay");
+            }
+        }, () -> {}, ex -> {
+            preferenceError(ex);
+            handler.post(() -> {
+                if (!isDestroyed() && slider.getProgress() == percent) {
+                    slider.setProgress(BinaryPress.percent(this)); showValue.run();
+                }
+            });
+        });
     }
 
     private void migrateColor() {

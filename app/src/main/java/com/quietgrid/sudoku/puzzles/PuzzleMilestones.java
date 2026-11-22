@@ -1,7 +1,5 @@
 package com.quietgrid.sudoku.puzzles;
 
-import java.util.Arrays;
-
 /** Local, visible-rule satisfaction only; never a search or a hidden-answer comparison. */
 public final class PuzzleMilestones {
     private PuzzleMilestones() {}
@@ -53,19 +51,18 @@ public final class PuzzleMilestones {
                 : puzzle instanceof Futoshiki ? ((Futoshiki) puzzle).errors() : null;
         boolean[] contradictions = puzzle instanceof Nonogram ? ((Nonogram) puzzle).contradictions() : null;
         for (int axis = 0; axis < 2; axis++) for (int line = 0; line < n; line++) {
-            boolean valid = true; int mask = 0;
+            boolean valid = true;
             for (int i = 0; i < n; i++) {
                 int cell = axis == 0 ? line * n + i : i * n + line;
                 int value = puzzle.entries()[cell];
                 if (puzzle instanceof Nonogram) {
                     valid &= value != 0 && !contradictions[cell / n] && !contradictions[n + cell % n];
-                    if (value == 1) mask |= 1 << i;
                 } else valid &= errors != null && errors[cell] == null
                         && value >= (puzzle instanceof Takuzu ? 0 : 1);
             }
             if (puzzle instanceof Nonogram) {
                 Nonogram picture = (Nonogram) puzzle;
-                valid &= Arrays.equals(Nonogram.runs(mask, n), axis == 0 ? picture.rows[line] : picture.columns[line]);
+                valid &= picture.lineSatisfied(line, axis == 1);
             }
             result[axis * n + line] = valid;
         }

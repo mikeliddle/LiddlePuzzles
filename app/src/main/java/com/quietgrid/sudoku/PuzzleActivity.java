@@ -643,15 +643,19 @@ public final class PuzzleActivity extends Activity {
             if (clue == null) continue;
             boolean column = index >= game.size(), error = pictureErrors[index];
             int line = index % game.size();
+            boolean satisfied = !error && ((Nonogram) game).lineSatisfied(line, column);
             int[] clues = column ? ((Nonogram) game).columns[line] : ((Nonogram) game).rows[line];
             String label = runs(clues, column ? "\n" : " ");
             if (!android.text.TextUtils.equals(clue.getText(), label)) clue.setText(label);
             clue.setContentDescription((column ? "Column " : "Row ") + (line + 1) + " runs " + runs(clues, ", ")
                     + (error ? ", contradiction: no placement of these runs fits the current filled and crossed-empty squares. Blank squares are undecided."
+                            : satisfied ? ", satisfied: filled runs match this clue."
                             : ", can still fit the current marks."));
             clue.setTextColor(error ? palette.error : palette.ink);
-            GradientDrawable fill = surface(palette.surface, error ? palette.error : palette.line);
+            GradientDrawable fill = surface(satisfied ? palette.tint : palette.surface,
+                    error ? palette.error : satisfied ? palette.accent : palette.line);
             if (error) fill.setStroke(dp(2), palette.error, dp(4), dp(2));
+            else if (satisfied) fill.setStroke(dp(2), palette.accent);
             clue.setBackground(fill);
         }
         if (binaryBank != null) for (int value = 0; value < 3; value++) {

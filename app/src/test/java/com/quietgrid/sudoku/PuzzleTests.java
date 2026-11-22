@@ -390,6 +390,27 @@ public final class PuzzleTests {
 
     private static void nonogramContradictions() throws Exception {
         Nonogram base = Nonogram.generate(new Random(117), new Generation());
+        for (boolean column : new boolean[]{false, true}) {
+            Nonogram line = base.copy(); Arrays.fill(line.values, 0);
+            (column ? line.columns : line.rows)[0] = new int[]{2};
+            check(!line.lineSatisfied(0, column), "A blank nonempty clue is not satisfied");
+            line.values[0] = 1;
+            check(!line.contradictions()[column ? 5 : 0] && !line.lineSatisfied(0, column),
+                    "Feasibility is not exact run satisfaction");
+            line.values[column ? 5 : 1] = 1;
+            check(line.lineSatisfied(0, column), "Exact filled runs satisfy without crossing the remaining blanks");
+            check(!PuzzleMilestones.satisfied(line)[column ? 5 : 0], "Static satisfaction does not relax decided-line motion");
+            Nonogram erased = line.copy(); erased.mark(column ? 5 : 1, 1);
+            PuzzleProgress progress = PuzzleStore.decodeProgress(Mode.NONOGRAM,
+                    PuzzleStore.encode(new PuzzleProgress(line).edited(erased)));
+            check(!((Nonogram) progress.game).lineSatisfied(0, column)
+                            && ((Nonogram) progress.undo().game).lineSatisfied(0, column),
+                    "Restored erase and Undo derive the correct clue state");
+            line.values[column ? 10 : 2] = 1;
+            check(line.contradictions()[column ? 5 : 0] && !line.lineSatisfied(0, column), "Overlong runs are not satisfied");
+            Arrays.fill(line.values, 0); (column ? line.columns : line.rows)[0] = new int[0];
+            check(line.lineSatisfied(0, column), "An empty clue is satisfied by unfilled undecided cells");
+        }
         boolean legalMistake = false;
         for (int seed = 0; seed < 30 && !legalMistake; seed++) {
             Nonogram candidate = Nonogram.generate(new Random(seed), new Generation());

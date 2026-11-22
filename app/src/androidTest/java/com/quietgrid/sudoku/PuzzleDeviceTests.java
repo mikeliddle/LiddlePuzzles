@@ -38,6 +38,8 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
     private int appearance;
     private boolean hadTakuzuSize;
     private int takuzuSize;
+    private boolean hadHoldDelay;
+    private int holdDelay;
 
     @Override protected void setUp() throws Exception {
         super.setUp();
@@ -50,6 +52,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         SharedPreferences settings = settings();
         hadAppearance = settings.contains("appearance"); appearance = settings.getInt("appearance", 0);
         hadTakuzuSize = settings.contains("takuzuSize"); takuzuSize = settings.getInt("takuzuSize", 8);
+        hadHoldDelay = settings.contains(BinaryPress.SETTING); holdDelay = settings.getInt(BinaryPress.SETTING, 50);
     }
 
     @Override protected void tearDown() throws Exception {
@@ -63,6 +66,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             SharedPreferences.Editor edit = settings().edit();
             if (hadAppearance) edit.putInt("appearance", appearance); else edit.remove("appearance");
             if (hadTakuzuSize) edit.putInt("takuzuSize", takuzuSize); else edit.remove("takuzuSize");
+            if (hadHoldDelay) edit.putInt(BinaryPress.SETTING, holdDelay); else edit.remove(BinaryPress.SETTING);
             assertTrue(edit.commit());
         } finally { super.tearDown(); }
     }
@@ -645,6 +649,65 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         } else tapSlitherEdge(target);
     }
 
+    public void testNonogramSatisfiedClueTintUndoAndResume() throws Exception {
+        Mode mode = Mode.NONOGRAM;
+        for (int look : new int[]{1, 2}) {
+            assertTrue(settings().edit().putInt("appearance", look).commit());
+            Nonogram picture = Nonogram.generate(10, new Random(271), new Generation());
+            picture.rows[0] = new int[]{2}; picture.columns[0] = new int[]{2}; picture.rows[9] = new int[0];
+            picture.values[0] = picture.values[10] = 1;
+            write(mode, PuzzleStore.encode(picture)); launch(mode);
+            TextView row = (TextView) require(tagged("nonogram-row-0"));
+            TextView column = (TextView) require(tagged("nonogram-column-0"));
+            assertClueSatisfied(row, false); assertClueSatisfied(column, true);
+            assertClueSatisfied((TextView) require(tagged("nonogram-row-9")), true);
+            android.graphics.RectF bounds = ViewportChecks.bounds(row), board = ViewportChecks.bounds(require(tagged("puzzle-board")));
+            String label = row.getText().toString();
+            int neutral = ((android.graphics.drawable.GradientDrawable) row.getBackground()).getColor().getDefaultColor();
+            tap(square(1));
+            assertClueSatisfied(row, true); assertClueSatisfied(column, true);
+            assertEquals("No explicit crosses are needed", 0, ((Nonogram) read(mode)).values[2]);
+            assertEquals("Static feedback adds no decided-line animation", 0, feedback().milestones());
+            assertEquals(label, row.getText().toString());
+            assertFalse("Satisfied clue has contrasting fill", neutral ==
+                    ((android.graphics.drawable.GradientDrawable) row.getBackground()).getColor().getDefaultColor());
+            assertEquals(bounds, ViewportChecks.bounds(row)); assertEquals(board, ViewportChecks.bounds(require(tagged("puzzle-board"))));
+            capture("puzzles-nonogram-satisfied-" + look + ".png");
+            tap(square(1)); assertClueSatisfied(row, false);
+            tap(require(findDescription("Undo last move"))); assertClueSatisfied(row, true);
+            close(); launch(mode);
+            assertClueSatisfied((TextView) require(tagged("nonogram-row-0")), true);
+            assertClueSatisfied((TextView) require(tagged("nonogram-column-0")), true);
+            assertEquals("Restored tint does not replay", 0, feedback().milestones());
+            tap(square(2));
+            TextView error = (TextView) require(tagged("nonogram-row-0"));
+            assertTrue(error.getContentDescription().toString().contains("contradiction:"));
+            assertFalse(error.getContentDescription().toString().contains("satisfied:"));
+            tap(require(findDescription("Undo last move"))); assertClueSatisfied(error, true);
+            rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            ViewportChecks.all(activity);
+            assertClueSatisfied((TextView) require(tagged("nonogram-row-0")), true);
+            capture("puzzles-nonogram-satisfied-wide-" + look + ".png"); close();
+        }
+        for (boolean dark : new boolean[]{false, true}) for (int color = 0; color < 8; color++) {
+            MainActivity.Palette palette = new MainActivity.Palette(dark, color);
+            assertTrue("Satisfied clue text contrast across themes/accents", contrast(palette.ink, palette.tint) >= 4.5);
+            assertTrue("Satisfied solid outline contrast across themes/accents", contrast(palette.accent, palette.tint) >= 3);
+        }
+    }
+
+    private void assertClueSatisfied(TextView clue, boolean expected) {
+        assertEquals("Accessible clue state follows exact public runs", expected,
+                clue.getContentDescription().toString().contains("satisfied:"));
+        int fill = ((android.graphics.drawable.GradientDrawable) clue.getBackground()).getColor().getDefaultColor();
+        assertTrue("Actual clue text stays legible", contrast(clue.getCurrentTextColor(), fill) >= 4.5);
+    }
+
+    private static double contrast(int first, int second) {
+        double a = android.graphics.Color.luminance(first), b = android.graphics.Color.luminance(second);
+        return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    }
+
     public void testNonogramContradictionsCorrectionAndUndo() throws Exception {
         Mode mode = Mode.NONOGRAM;
         for (int look : new int[]{1, 2}) {
@@ -842,10 +905,16 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         getInstrumentation().waitForIdleSync(); SystemClock.sleep(100);
     }
     public void testGameplayHoldTiming() throws Exception {
-        assertEquals(400, BinaryPress.timeout(500));
-        assertEquals(320, BinaryPress.timeout(400));
-        assertEquals(1000, BinaryPress.timeout(1000));
-        assertEquals(1500, BinaryPress.timeout(1500));
+        assertTrue(settings().edit().remove(BinaryPress.SETTING).commit());
+        assertEquals(50, BinaryPress.percent(getInstrumentation().getTargetContext()));
+        assertEquals(250, BinaryPress.timeout(500, 50));
+        assertEquals(100, BinaryPress.timeout(500, 20));
+        assertEquals(500, BinaryPress.timeout(500, 100));
+        assertEquals(200, BinaryPress.timeout(400, 50));
+        assertEquals(500, BinaryPress.timeout(1000, 50));
+        assertEquals(750, BinaryPress.timeout(1500, 50));
+        assertEquals(300, BinaryPress.timeout(1500, 20));
+        assertEquals(1500, BinaryPress.timeout(1500, 100));
         Mode mode = Mode.MINESWEEPER;
         write(mode, PuzzleStore.encode(new Minesweeper(2026112001))); launch(mode);
         android.graphics.RectF bounds = ViewportChecks.bounds(square(0));
@@ -853,7 +922,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         long start = SystemClock.uptimeMillis();
         MotionEvent down = MotionEvent.obtain(start, start, MotionEvent.ACTION_DOWN, x, y, 0);
         getInstrumentation().sendPointerSync(down); down.recycle();
-        int timeout = BinaryPress.timeout();
+        int timeout = BinaryPress.timeout(getInstrumentation().getTargetContext());
         SystemClock.sleep(Math.max(0, start + timeout - 100 - SystemClock.uptimeMillis()));
         assertEquals("Secondary does not fire before the shorter deadline", 0, ((Minesweeper) read(mode)).flags());
         assertEquals(-1, ((Minesweeper) read(mode)).first);
@@ -873,6 +942,53 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         up = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
         getInstrumentation().sendPointerSync(up); up.recycle(); settle();
         assertEquals("Release before deadline is still a reveal", 27, ((Minesweeper) read(mode)).first);
+    }
+
+    public void testHoldDelaySliderPersistenceAndAccessibleInput() throws Exception {
+        assertTrue(settings().edit().remove(BinaryPress.SETTING).commit());
+        openGlobalSettings();
+        android.widget.SeekBar slider = (android.widget.SeekBar) require(tagged("hold-delay"));
+        assertEquals(20, slider.getMin()); assertEquals(100, slider.getMax());
+        assertEquals(50, slider.getProgress());
+        getInstrumentation().runOnMainSync(() -> {
+            slider.requestFocus();
+            slider.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+            slider.dispatchKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DPAD_RIGHT));
+        });
+        awaitHoldPreference();
+        assertEquals("Keyboard adjusts and saves", 51, settings().getInt(BinaryPress.SETTING, -1));
+        for (int percent : new int[]{20, 100, 50}) {
+            getInstrumentation().runOnMainSync(() -> {
+                Bundle args = new Bundle();
+                args.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, percent);
+                assertTrue("Native assistive range action", slider.performAccessibilityAction(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), args));
+            });
+            awaitHoldPreference();
+            assertEquals(percent, settings().getInt(BinaryPress.SETTING, -1));
+            assertEquals(BinaryPress.timeout(android.view.ViewConfiguration.getLongPressTimeout(), percent),
+                    BinaryPress.timeout(getInstrumentation().getTargetContext()));
+        }
+        capture("puzzles-settings-hold-delay.png");
+        close(); openGlobalSettings();
+        assertEquals("Reopen restores the saved percent", 50,
+                ((android.widget.SeekBar) require(tagged("hold-delay"))).getProgress());
+        getInstrumentation().runOnMainSync(() -> activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE));
+        settle();
+        ViewportChecks.all(activity);
+    }
+
+    private void openGlobalSettings() {
+        activity = getInstrumentation().startActivitySync(new Intent(getInstrumentation().getTargetContext(), MainActivity.class)
+                .putExtra(MainActivity.OPEN_SETTINGS, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        settle();
+    }
+
+    private void awaitHoldPreference() throws Exception {
+        SaveQueue.forPath(new File(getInstrumentation().getTargetContext().getFilesDir().getParentFile(),
+                "shared_prefs/settings.xml").getAbsolutePath()).flushBlocking();
+        getInstrumentation().waitForIdleSync();
     }
 
     public void testMinesNumberChording() throws Exception {
@@ -1057,7 +1173,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         if (interruption == 4) getInstrumentation().runOnMainSync(() -> {
             board.onWindowFocusChanged(false); board.onWindowFocusChanged(true);
         });
-        SystemClock.sleep(BinaryPress.timeout() + 60);
+        SystemClock.sleep(BinaryPress.timeout(getInstrumentation().getTargetContext()) + 60);
         localEdgeEvent(board, start, MotionEvent.ACTION_UP, x, y);
         getInstrumentation().waitForIdleSync();
     }
@@ -1400,7 +1516,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                 getInstrumentation().sendPointerSync(event); event.recycle();
             }
         }
-        SystemClock.sleep(BinaryPress.timeout() + 60);
+        SystemClock.sleep(BinaryPress.timeout(getInstrumentation().getTargetContext()) + 60);
         MotionEvent up = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
         getInstrumentation().sendPointerSync(up); up.recycle();
         getInstrumentation().waitForIdleSync(); SystemClock.sleep(120);

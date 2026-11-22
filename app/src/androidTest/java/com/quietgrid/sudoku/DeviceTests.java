@@ -1826,7 +1826,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_CANCEL, x, y, 0);
             getInstrumentation().sendPointerSync(event); event.recycle();
         }
-        SystemClock.sleep(BinaryPress.timeout() + 60);
+        SystemClock.sleep(BinaryPress.timeout(getInstrumentation().getTargetContext()) + 60);
         MotionEvent up = MotionEvent.obtain(start, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
         getInstrumentation().sendPointerSync(up); up.recycle();
         getInstrumentation().waitForIdleSync(); SystemClock.sleep(120);

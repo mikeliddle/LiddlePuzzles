@@ -49,6 +49,12 @@ name are not the collection's display or download name. The Gradle root project
 uses the machine-readable name `liddle-puzzles`.
 The local signing-directory path and frozen Daily Word schedule stay unchanged.
 
+Global Settings also has a **Gameplay / Hold delay** slider: 20-100% of Android's
+touch-and-hold delay, default 50% (250 ms with Android's 500 ms default).
+The percentage also scales longer Android delays; 100% uses the system timing
+unchanged. This app-only preference never changes Android settings. Tap/hold
+alternatives and named accessibility actions remain available.
+
 ### Six more generated puzzles
 
 Each additional game has a compact **? / How to play** button with its exact rules
@@ -159,7 +165,11 @@ start with empty history without resetting their board or changing its size.
 Minesweeper retains its reveal/flag rules without Undo; Daily Word does not
 permit undoing submitted guesses. Sudoku's existing Undo is unchanged.
 
-Nonogram row/column clues turn red with a dashed outline only when no
+When a Nonogram row/column's filled runs exactly match its clue, the clue area
+has a quiet theme tint and solid outline; remaining squares need not
+be crossed. This is a local visible-rule match, not hidden-answer verification.
+Incomplete feasible lines remain neutral. Clues turn red with a dashed outline
+only when no
 legal placement of their runs can fit the current filled and explicitly
 crossed-empty squares. Undecided squares remain unconstrained: incomplete
 lines are not automatically errors, and this check never compares against a

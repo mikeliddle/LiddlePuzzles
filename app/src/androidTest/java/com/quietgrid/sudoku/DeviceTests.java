@@ -1178,10 +1178,61 @@ public final class DeviceTests extends InstrumentationTestCase {
         }
     }
 
+    public void testArmedHouseHighlightingColors() {
+        int[] solution = new int[81];
+        for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++)
+            solution[r * 9 + c] = (r * 3 + r / 3 + c) % 9 + 1;
+        Game fixture = new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
+        fixture.values[0] = 4;
+        fixture.values[40] = 4;
+        fixture.showMistakes = true;
+        fixture.toggleDigit(4);
+        for (boolean dark : new boolean[]{false, true}) {
+            MainActivity.Palette palette = new MainActivity.Palette(dark, 3);
+            Bitmap off = renderBoard(fixture, palette);
+            Bitmap on = renderBoard(fixture, palette, true);
+            try {
+                assertEquals(palette.surface, boardFill(off, 4));
+                assertEquals("Overlapping row and column share a single peer fill", palette.peer, boardFill(on, 4));
+                assertEquals("Box-only peer", palette.peer, boardFill(on, 10));
+                assertEquals("Unrelated cell", palette.surface, boardFill(on, 80));
+                assertEquals("Solution-mismatch fill remains distinct", palette.errorFill, boardFill(on, 0));
+                assertEquals(boardFill(off, 40), boardFill(on, 40));
+                fixture.showMistakes = false;
+                Bitmap noMistakes = renderBoard(fixture, palette, true);
+                try { assertEquals("Matching digit fill is stronger than its houses", palette.tint, boardFill(noMistakes, 0)); }
+                finally { noMistakes.recycle(); fixture.showMistakes = true; }
+                fixture.setNoteMode(true);
+                Bitmap notes = renderBoard(fixture, palette, true);
+                try { assertEquals("Switching to Notes removes the peer fill", palette.surface, boardFill(notes, 4)); }
+                finally { notes.recycle(); fixture.setNoteMode(false); }
+                fixture.toggleDigit(4);
+                fixture.selectCell(80);
+                Bitmap selected = renderBoard(fixture, palette, true);
+                try {
+                    assertEquals("Cell-first selection retains its usual fill", palette.tint, boardFill(selected, 80));
+                    assertEquals("Unarmed selection does not shade digit houses", palette.surface, boardFill(selected, 4));
+                } finally { selected.recycle(); fixture.toggleDigit(4); }
+            } finally { off.recycle(); on.recycle(); }
+        }
+    }
+
+    private int boardFill(Bitmap bitmap, int cell) {
+        float margin = 6 * getInstrumentation().getTargetContext().getResources().getDisplayMetrics().density;
+        float size = (bitmap.getWidth() - 2 * margin) / 9;
+        return bitmap.getPixel((int) (margin + (cell % 9 + .2f) * size),
+                (int) (margin + (cell / 9 + .2f) * size));
+    }
+
     private Bitmap renderBoard(Game state, MainActivity.Palette palette) {
+        return renderBoard(state, palette, false);
+    }
+
+    private Bitmap renderBoard(Game state, MainActivity.Palette palette, boolean highlightHouses) {
         Bitmap bitmap = Bitmap.createBitmap(1080, 1080, Bitmap.Config.ARGB_8888);
         getInstrumentation().runOnMainSync(() -> {
             BoardView preview = new BoardView(getInstrumentation().getTargetContext(), palette);
+            preview.setHighlightHouses(highlightHouses);
             preview.setGame(state);
             preview.layout(0, 0, 1080, 1080);
             preview.draw(new android.graphics.Canvas(bitmap));

@@ -38,6 +38,18 @@ public final class Game {
         return values[cell] == 0 ? notes[cell] & Sudoku.candidates(values, cell) : 0;
     }
 
+    void markArmedDigitHouses(boolean[] cells) {
+        java.util.Arrays.fill(cells, false);
+        if (armedDigit == 0 || noteMode || selected >= 0) return;
+        for (int source = 0; source < values.length; source++) {
+            if (values[source] != armedDigit) continue;
+            cells[source] = true;
+            for (int cell = 0; cell < cells.length; cell++) {
+                cells[cell] |= Sudoku.PEERS[source][cell];
+            }
+        }
+    }
+
     public void toggleDigit(int digit) {
         if (digit < 1 || digit > 9) throw new IllegalArgumentException("Digit must be 1 through 9");
         if (won() || remaining(digit) == 0) { normalizeArmedDigit(); return; }

@@ -302,6 +302,43 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         close();
         assertTrue(Arrays.equals(corrupt, Files.readAllBytes(file("current-game.bin").toPath())));
     }
+    public void testSudokuHousePreferenceNeverTouchesPuzzleSave() throws Throwable {
+        byte[] original = {1, 2, 3};
+        put("current-game.bin", original);
+        Intent settings = new Intent().putExtra(MainActivity.OPEN_SETTINGS, true)
+                .putExtra(MainActivity.SETTINGS_GAME, "SUDOKU");
+        start(MainActivity.class, settings);
+        runTestOnUiThread(() -> {
+            android.widget.Switch houses = houseSwitch();
+            assertFalse(houses.isChecked());
+            houses.performClick();
+        });
+        ((SaveQueue) invoke(activity, "preferencesQueue")).flushBlocking();
+        assertNull(field(activity, "game"));
+        close();
+        start(MainActivity.class, settings);
+        runTestOnUiThread(() -> {
+            android.widget.Switch houses = houseSwitch();
+            assertTrue(houses.isChecked());
+            houses.performClick();
+        });
+        ((SaveQueue) invoke(activity, "preferencesQueue")).flushBlocking();
+        close();
+        start(MainActivity.class, settings);
+        runTestOnUiThread(() -> assertFalse(houseSwitch().isChecked()));
+        close();
+        assertTrue(Arrays.equals(original, Files.readAllBytes(file("current-game.bin").toPath())));
+        assertFalse(file("current-game.bin.bak").exists());
+        assertFalse(file("current-game.bin.new").exists());
+    }
+
+    private android.widget.Switch houseSwitch() {
+        ArrayList<android.view.View> matches = new ArrayList<>();
+        activity.getWindow().getDecorView().findViewsWithText(matches, "Highlight houses", android.view.View.FIND_VIEWS_WITH_TEXT);
+        assertEquals(1, matches.size());
+        return (android.widget.Switch) matches.get(0);
+    }
+
     public void testStalledSaveKeepsUiResponsiveAndQueuedEditsSurviveRecreation() throws Throwable {
         Takuzu fixture = Takuzu.generate(6, new Random(27), new Generation());
         put("puzzles/takuzu-v1.bin", PuzzleStore.encode(fixture));

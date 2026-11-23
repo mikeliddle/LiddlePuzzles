@@ -48,6 +48,7 @@ import java.util.concurrent.Future;
 public final class MainActivity extends Activity {
     public static final String OPEN_SETTINGS = "open-settings";
     public static final String SETTINGS_GAME = "settings-game";
+    private static final String HIGHLIGHT_HOUSES = "sudoku.highlightHouses";
     static final String[] COLOR_NAMES = {"Red", "Orange", "Yellow", "Green", "Blue", "Pink", "Purple", "Brown"};
     private static final String[] COLOR_SWATCHES = {"#C83B46", "#E68A22", "#E1BE19", "#368449",
             "#3675C3", "#CE5B96", "#965EB0", "#926949"};
@@ -538,6 +539,7 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshGame() {
+        refreshHouseHighlighting();
         board.setGame(game);
         refreshLargeControls();
         undoButton.setEnabled(game.canUndo() && !loading);
@@ -834,6 +836,11 @@ public final class MainActivity extends Activity {
             mistakes.setContentDescription("Show mistakes");
             mistakes.setTooltipText("Mark entries that differ from the unique solution. Off by default.");
             addControl(content, mistakes, 56, 8);
+            Switch houses = toggle("Highlight houses", preferences.getBoolean(HIGHLIGHT_HOUSES, false),
+                    (view, enabled) -> persistPreference(HIGHLIGHT_HOUSES, enabled,
+                            () -> handler.post(this::refreshHouseHighlighting)));
+            houses.setTooltipText("Shade rows, columns, and boxes already containing the digit you're entering.");
+            addControl(content, houses, 56, 8);
         } else if (settingsGame.equals("DAILY_WORD")) {
             addCopy(content, "5 letters", 22, palette.ink, 8);
             addCopy(content, "6 guesses", 22, palette.ink, 8);
@@ -856,6 +863,10 @@ public final class MainActivity extends Activity {
     }
 
     private void persistPreference(String key, boolean value) {
+        persistPreference(key, value, () -> {});
+    }
+
+    private void persistPreference(String key, boolean value, Runnable success) {
         preferencesQueue().commit(() -> {
             boolean existed = preferences.contains(key), previous = preferences.getBoolean(key, false);
             if (!preferences.edit().putBoolean(key, value).commit()) {
@@ -864,7 +875,11 @@ public final class MainActivity extends Activity {
                 if (!rollback.commit()) Log.e("Sudoku", "Preference rollback failed");
                 throw new IOException("Could not save gameplay preference");
             }
-        }, () -> {}, ex -> preferenceError(ex));
+        }, success, ex -> preferenceError(ex));
+    }
+
+    private void refreshHouseHighlighting() {
+        if (board != null) board.setHighlightHouses(preferences.getBoolean(HIGHLIGHT_HOUSES, false));
     }
 
     private void persistHoldDelay(SeekBar slider, Runnable showValue) {
@@ -1154,6 +1169,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        refreshHouseHighlighting();
         resumed = true; startedAt = SystemClock.elapsedRealtime();
         handler.post(ticker);
     }

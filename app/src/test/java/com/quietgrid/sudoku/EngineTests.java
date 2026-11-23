@@ -20,6 +20,7 @@ public final class EngineTests {
         heldNotes();
         duplicatePrevention();
         houseCompletion();
+        armedDigitHouses();
         persistence();
         importedSaveCompatibility();
         committedCopyIsolation();
@@ -107,6 +108,46 @@ public final class EngineTests {
         int[] solution = new int[81];
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) solution[r * 9 + c] = (r * 3 + r / 3 + c) % 9 + 1;
         return new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
+    }
+
+    private static void armedDigitHouses() {
+        int[] clues = new int[81];
+        clues[0] = 4;
+        Game g = new Game(new Sudoku.Puzzle(clues, blank().solution, Sudoku.Difficulty.FOCUSED, null));
+        g.notes[80] = Sudoku.bit(4);
+        g.toggleDigit(4);
+        // A legal player entry counts, even when it differs from the solution.
+        check(g.selectCell(40), "Place a second visible four");
+        boolean[] cells = new boolean[81];
+        g.markArmedDigitHouses(cells);
+        for (int i = 0; i < cells.length; i++) {
+            int row = i / 9, column = i % 9;
+            boolean expected = row == 0 || column == 0 || (row < 3 && column < 3)
+                    || row == 4 || column == 4 || (row / 3 == 1 && column / 3 == 1);
+            check(cells[i] == expected, "Union of visible fours at cell " + i);
+        }
+        g.setNoteMode(true);
+        g.markArmedDigitHouses(cells);
+        check(Arrays.equals(cells, new boolean[81]), "Notes mode has no house shading");
+        g.setNoteMode(false);
+        check(g.undo(), "Undo number placement");
+        g.markArmedDigitHouses(cells);
+        check(cells[0] && cells[10] && !cells[40], "Undo keeps only the given's houses");
+        check(g.selectCell(40), "Replace the player four");
+        g.toggleDigit(4);
+        g.selectCell(40);
+        g.markArmedDigitHouses(cells);
+        check(Arrays.equals(cells, new boolean[81]), "Cell-first selection has no armed houses");
+        check(g.clear(), "Erase the player four");
+        g.toggleDigit(4);
+        g.markArmedDigitHouses(cells);
+        check(cells[0] && !cells[40], "Erased entries no longer shade houses");
+        check(g.undo(), "Undo erase");
+        g.markArmedDigitHouses(cells);
+        check(cells[40], "Undo erase restores house shading");
+        g.toggleDigit(5);
+        g.markArmedDigitHouses(cells);
+        check(Arrays.equals(cells, new boolean[81]), "Switching digits ignores the hidden solution");
     }
 
     private static void houseCompletion() {

@@ -144,6 +144,7 @@ final class SaveTests {
                     "-Xmx32m", "-cp", System.getProperty("java.class.path"), SaveTests.class.getName(), "oversized")
                     .inheritIO().start();
             require(child.waitFor() == 0, "Oversized replacement and restoration must fit a 32 MiB heap");
+            responsibleLimit(directory);
             System.out.println("PASS: save final-commit rollback, recovery and ordered checkpoint assertions");
         } finally {
             for (File child : directory.listFiles()) Files.delete(child.toPath());
@@ -151,6 +152,65 @@ final class SaveTests {
         }
     }
     private static void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
+
+    private static void responsibleLimit(File directory) throws Exception {
+        var today = java.time.LocalDate.of(2026, 11, 23);
+        File file = new File(directory, "quota.bin");
+        File reopened = new File(directory, "quota-reopened.bin");
+        File other = new File(directory, "quota-other.bin");
+        byte[] inProgress = {1}, finished = {2};
+        DurableFile storage = new DurableFile(file, new DurableFile.FileOperations() {
+            @Override public void syncDirectory(File target) {}
+        });
+        PuzzleSave quota = PuzzleSave.forFile(file);
+        try {
+            storage.commit(inProgress);
+            require(Arrays.equals(inProgress, quota.read(storage, 1)) && quota.finishedToday(today) == 0,
+                    "Legacy saves reopen without inventing finishes");
+            for (int i = 0; i < 9; i++) {
+                quota.commit(storage, inProgress, PuzzleSave.Edit.REPLACE, false, today);
+                quota.commit(storage, finished, PuzzleSave.Edit.FINISH, false, today);
+            }
+            quota.commit(storage, inProgress, PuzzleSave.Edit.REPLACE, true, today);
+            require(quota.finishedToday(today) == 9 && !quota.limited(true, today), "Abandonment doesn't use a slot");
+            DurableFile failing = new DurableFile(file, new DurableFile.FileOperations() {
+                @Override public void syncDirectory(File target) {}
+                @Override public void write(File target, byte[] bytes) throws IOException { throw new IOException("Disk write failed"); }
+            });
+            try {
+                quota.commit(failing, finished, PuzzleSave.Edit.FINISH, true, today);
+                throw new AssertionError("Terminal save failure must be observable");
+            } catch (IOException expected) {
+                require(!quota.limited(true, today) && Arrays.equals(inProgress, quota.read(storage, 1)),
+                        "A failed 10th finish leaves the old board and count");
+            }
+            quota.commit(storage, finished, PuzzleSave.Edit.FINISH, true, today);
+            require(quota.limited(true, today) && quota.finishedToday(today) == 10, "The 10th finish locks the bucket");
+            for (PuzzleSave.Edit edit : new PuzzleSave.Edit[]{PuzzleSave.Edit.REPLACE, PuzzleSave.Edit.PLAY, PuzzleSave.Edit.FINISH}) {
+                try {
+                    quota.commit(storage, inProgress, edit, true, today);
+                    throw new AssertionError("No replacement, play or new finish at the limit");
+                } catch (PuzzleSave.LimitReached expected) { }
+            }
+            Files.copy(file.toPath(), reopened.toPath());
+            PuzzleSave restored = PuzzleSave.forFile(reopened);
+            DurableFile restoredStorage = new DurableFile(reopened, new DurableFile.FileOperations() {
+                @Override public void syncDirectory(File target) {}
+            });
+            require(Arrays.equals(finished, restored.read(restoredStorage, 1)) && restored.limited(true, today),
+                    "Reopen preserves the terminal board and its tally");
+            require(!PuzzleSave.forFile(other).limited(true, today), "A different puzzle type has its own bucket");
+            quota.commit(storage, inProgress, PuzzleSave.Edit.UNDO_FINISH, true, today.plusDays(1));
+            quota.commit(storage, finished, PuzzleSave.Edit.FINISH, true, today.plusDays(1));
+            require(quota.finishedToday(today.plusDays(1)) == 0, "Undo and re-finish don't count the same playthrough again");
+            quota.commit(storage, inProgress, PuzzleSave.Edit.REPLACE, true, today.plusDays(1));
+            quota.commit(storage, finished, PuzzleSave.Edit.FINISH, true, today.plusDays(1));
+            require(quota.finishedToday(today.plusDays(1)) == 1, "A new playthrough uses the new day's bucket");
+        } finally {
+            for (File target : new File[]{file, reopened})
+                for (String suffix : new String[]{"", ".bak", ".new"}) Files.deleteIfExists(new File(target + suffix).toPath());
+        }
+    }
 
     public static void main(String[] args) throws Exception {
         File directory = Files.createTempDirectory("oversized-save-test").toFile();

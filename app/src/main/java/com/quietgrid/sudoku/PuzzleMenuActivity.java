@@ -125,7 +125,7 @@ public final class PuzzleMenuActivity extends Activity {
     }
 
     private void choose(int setting) {
-        if (busy) return;
+        if (busy || ResponsibleMode.notifyIfLimited(this, PuzzleActivity.quota(this, mode))) return;
         if (failed || progress != null && !progress.game.solved() && !progress.game.lost()) {
             new AlertDialog.Builder(this).setTitle("Replace this puzzle?")
                     .setMessage(failed ? "The unreadable save will be replaced only after a new puzzle is generated and saved."
@@ -135,6 +135,7 @@ public final class PuzzleMenuActivity extends Activity {
     }
 
     private void play(Integer setting) {
+        if (setting != null && ResponsibleMode.notifyIfLimited(this, PuzzleActivity.quota(this, mode))) return;
         if (setting != null && !getSharedPreferences("settings", 0).edit().putInt(mode.settingKey(), setting).commit()) {
             Log.e("PuzzleMenu", "Could not save new puzzle preference");
             new AlertDialog.Builder(this).setMessage("Could not save your puzzle setting. Please try again. Your progress is unchanged.")

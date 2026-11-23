@@ -59,6 +59,10 @@ public final class MainActivity extends Activity {
     private Game committedGame;
     private boolean settingsOnly;
     private SaveSession<MainActivity> saveSession;
+    private PuzzleSave puzzleSave;
+    private Switch responsibleToggle;
+    private TextView responsibleNote;
+    private boolean settingResponsible, showingLimit;
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> bestTimes = new java.util.concurrent.ConcurrentHashMap<>();
     private static final class Retained {
         final SaveSession<MainActivity> session;
@@ -141,6 +145,7 @@ public final class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         preferences = getSharedPreferences("settings", MODE_PRIVATE);
         settingsOnly = getIntent().getBooleanExtra(OPEN_SETTINGS, false);
+        puzzleSave = PuzzleSave.forFile(savedGame());
         SaveQueue saves = SaveQueue.forPath(savedGame().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
@@ -175,7 +180,7 @@ public final class MainActivity extends Activity {
                 if (isDestroyed()) return;
                 migrateAutoNotes(); recordBestSolve();
                 if (screen == Screen.PLAY && game == null) screen = Screen.MENU;
-                else if (screen == Screen.PLAY && game.won()) screen = Screen.WIN;
+                else if (screen == Screen.PLAY && game.won() && !limited()) screen = Screen.WIN;
                 if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
                 render(false); saveSession.ready();
                 if (restart != null) generate(restart);
@@ -221,7 +226,7 @@ public final class MainActivity extends Activity {
 
     private void render(boolean animateWin) {
         if (celebration != null) { celebration.stop(); celebration = null; }
-        board = null; clock = null;
+        board = null; clock = null; responsibleToggle = null; responsibleNote = null;
         Arrays.fill(bank, null);
         updatePalette();
         if (game == null && (screen == Screen.PLAY || screen == Screen.WIN))
@@ -327,9 +332,10 @@ public final class MainActivity extends Activity {
         settings.setOnClickListener(v -> openSettings());
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ScreenChrome.pin(content, heading);
-        if (game != null && !game.won()) {
-            Button resume = button("Resume", true);
-            resume.setContentDescription("Resume " + game.difficulty.label + " Sudoku, " + time(game.elapsedMillis));
+        if (game != null && (!game.won() || limited())) {
+            boolean view = game.won() || limited();
+            Button resume = button(view ? "View saved puzzle" : "Resume", true);
+            resume.setContentDescription((view ? "View " : "Resume ") + game.difficulty.label + " Sudoku, " + time(game.elapsedMillis));
             resume.setOnClickListener(v -> navigate(Screen.PLAY));
             resume.setTag("puzzle-resume");
             ControlStyle.menuResume(content, resume, palette);
@@ -408,14 +414,14 @@ public final class MainActivity extends Activity {
         undoButton = iconButton("Undo", R.drawable.ic_undo);
         undoButton.setOnClickListener(v -> {
             saveSession.dispatch(owner -> {
-                if (owner.game.undo()) owner.changed(value -> {
+                if (!owner.readOnly() && owner.game.undo()) owner.changed(value -> {
                     value.persistPreference(autoNotesKey(value.game.difficulty), value.game.autoNotes);
                     if (value.resumed && value.screen == Screen.PLAY) value.announce("Move undone");
                 });
             });
         });
         eraseButton = iconButton("Erase", R.drawable.ic_erase);
-        eraseButton.setOnClickListener(v -> saveSession.dispatch(owner -> { if (owner.game.clear()) owner.changed(); }));
+        eraseButton.setOnClickListener(v -> saveSession.dispatch(owner -> { if (!owner.readOnly() && owner.game.clear()) owner.changed(); }));
         notesButton = button("Notes", false);
         notesButton.setTag("notes-toggle");
         notesButton.setSingleLine(true);
@@ -423,6 +429,7 @@ public final class MainActivity extends Activity {
         notesButton.setHorizontallyScrolling(false);
         notesButton.setOnClickListener(v -> {
             saveSession.dispatch(owner -> {
+                if (owner.readOnly()) return;
                 owner.game.setNoteMode(!owner.game.noteMode);
                 owner.changed(value -> { if (value.resumed && value.screen == Screen.PLAY)
                     value.announce(value.game.noteMode ? "Notes mode" : "Number entry mode"); });
@@ -471,7 +478,7 @@ public final class MainActivity extends Activity {
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         boolean outside = false;
-        if (screen == Screen.PLAY && game != null && board != null
+        if (screen == Screen.PLAY && game != null && board != null && !readOnly()
                 && !board.containsBoardPoint(event.getRawX(), event.getRawY())) {
             boolean bankTap = false;
             for (Button button : bank) bankTap |= hit(button, event);
@@ -479,11 +486,11 @@ public final class MainActivity extends Activity {
             boolean disabledBankTap = false;
             for (Button button : bank) disabledBankTap |= hit(button, event) && !button.isEnabled();
             if (disabledBankTap && event.getAction() == MotionEvent.ACTION_DOWN && game.selected != -1) {
-                saveSession.dispatch(owner -> { if (owner.game != null) { owner.game.selected = -1; owner.changed(); } });
+                saveSession.dispatch(owner -> { if (owner.game != null && !owner.readOnly()) { owner.game.selected = -1; owner.changed(); } });
             }
             outside = !inputControl;
             if (outside && event.getAction() == MotionEvent.ACTION_DOWN && game.armedDigit != 0) {
-                saveSession.dispatch(owner -> { if (owner.game != null) { owner.game.armedDigit = 0; owner.changed(); } });
+                saveSession.dispatch(owner -> { if (owner.game != null && !owner.readOnly()) { owner.game.armedDigit = 0; owner.changed(); } });
             }
             if (outside && event.getAction() == MotionEvent.ACTION_DOWN) board.clearEntryFeedback();
         }
@@ -492,7 +499,7 @@ public final class MainActivity extends Activity {
             // Button clicks are posted by View; let Erase/Undo use their target first.
             handler.post(() -> {
                 if (screen == Screen.PLAY) saveSession.dispatch(owner -> {
-                    if (owner.game != null && owner.game.selected != -1) { owner.game.selected = -1; owner.changed(); }
+                    if (owner.game != null && !owner.readOnly() && owner.game.selected != -1) { owner.game.selected = -1; owner.changed(); }
                 });
             });
         }
@@ -507,7 +514,7 @@ public final class MainActivity extends Activity {
 
     private void bindDispatcher(BoardView target) {
         target.setDispatcher(action -> saveSession.dispatch(owner -> {
-            if (owner.game == null) return;
+            if (owner.game == null || owner.readOnly()) return;
             if (owner.board == null) {
                 owner.board = new BoardView(owner, owner.palette);
                 owner.board.setOnSelectionChanged(owner::changed); owner.board.setOnEntryChanged(owner::changed);
@@ -522,7 +529,7 @@ public final class MainActivity extends Activity {
         game.normalizeArmedDigit();
         Game previous = committedGame == null ? game.copy() : committedGame.copy();
         MainActivity origin = this;
-        save(owner -> {
+        save(game.won() && !previous.won() ? PuzzleSave.Edit.FINISH : PuzzleSave.Edit.PLAY, owner -> {
             if (owner.game.won()) {
                 owner.recordBestSolve();
                 if (owner.screen == Screen.PLAY) {
@@ -539,9 +546,13 @@ public final class MainActivity extends Activity {
 
     private void refreshGame() {
         board.setGame(game);
+        showingLimit = limited();
+        boolean readOnly = showingLimit || game.won();
+        board.setEnabled(!readOnly);
         refreshLargeControls();
-        undoButton.setEnabled(game.canUndo() && !loading);
-        boolean editable = game.selected >= 0 && game.clues[game.selected] == 0 && !game.won();
+        undoButton.setEnabled(!readOnly && game.canUndo() && !loading);
+        notesButton.setEnabled(!readOnly);
+        boolean editable = !showingLimit && game.selected >= 0 && game.clues[game.selected] == 0 && !game.won();
         eraseButton.setEnabled(editable && (game.values[game.selected] != 0 || game.notes[game.selected] != 0));
         ControlStyle.icon(notesButton, "Notes", R.drawable.ic_notes, game.noteMode ? palette.ink : palette.accent);
         ControlStyle.state(notesButton, game.noteMode);
@@ -572,7 +583,7 @@ public final class MainActivity extends Activity {
             else fill.setStroke(dp(1), palette.accent);
             number.setBackground(new android.graphics.drawable.RippleDrawable(
                     rippleColor(), fill, null));
-            number.setEnabled(available && !loading && !game.won());
+            number.setEnabled(!showingLimit && available && !loading && !game.won());
         }
         updateClock();
     }
@@ -594,6 +605,7 @@ public final class MainActivity extends Activity {
                 number.setOnClickListener(v -> {
                     int target = largeTarget;
                     saveSession.dispatch(owner -> {
+                        if (owner.readOnly()) return;
                         int oldSelection = owner.game.selected, oldArmed = owner.game.armedDigit;
                         owner.game.selected = target; owner.game.armedDigit = 0;
                         if (owner.game.enter(digit)) owner.changed();
@@ -610,6 +622,7 @@ public final class MainActivity extends Activity {
         largeErase.setOnClickListener(v -> {
             int target = largeTarget;
             saveSession.dispatch(owner -> {
+                if (owner.readOnly()) return;
                 owner.game.selected = target; owner.game.armedDigit = 0;
                 if (owner.game.clear()) owner.changed();
             });
@@ -638,7 +651,7 @@ public final class MainActivity extends Activity {
     private void refreshLargeTarget() {
         if (largeControls == null) return;
         largeSquare.setText(board.description(largeTarget));
-        boolean editable = game.clues[largeTarget] == 0 && !game.won();
+        boolean editable = !showingLimit && game.clues[largeTarget] == 0 && !game.won();
         for (int digit = 1; digit <= 9; digit++) {
             Button number = largeDigits[digit - 1];
             number.setText(digit + "\n" + game.remaining(digit));
@@ -652,7 +665,8 @@ public final class MainActivity extends Activity {
         GradientDrawable noteFill = buttonSurface(game.noteMode ? palette.tint : palette.surface, dp(12));
         if (game.noteMode) noteFill.setStroke(dp(2), palette.accent);
         largeNotes.setBackground(new android.graphics.drawable.RippleDrawable(rippleColor(), noteFill, null));
-        largeUndo.setEnabled(game.canUndo());
+        largeUndo.setEnabled(!showingLimit && !game.won() && game.canUndo());
+        largeNotes.setEnabled(!showingLimit && !game.won());
     }
 
     private void openSettings() {
@@ -679,6 +693,13 @@ public final class MainActivity extends Activity {
         heading.addView(new View(this), new LinearLayout.LayoutParams(dp(48), dp(48)));
         ScreenChrome.pin(content, heading);
         if (settingsGame != null) { gameSettings(content); return; }
+        responsibleToggle = toggle("Responsible mode", false, null);
+        addControl(content, responsibleToggle, 56, 4);
+        responsibleNote = text("", 14, palette.muted);
+        responsibleNote.setPadding(0, 0, 0, dp(16));
+        responsibleNote.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        content.addView(responsibleNote, new LinearLayout.LayoutParams(-1, -2));
+        refreshResponsibleSetting();
         addCopy(content, "Appearance", 22, palette.ink, 8);
         RadioGroup appearance = new RadioGroup(this) {
             @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
@@ -800,6 +821,37 @@ public final class MainActivity extends Activity {
         addCopy(content, getString(R.string.ai_disclosure), 14, palette.muted, 0);
     }
 
+    private void changeResponsibleSetting(CompoundButton view, boolean enabled) {
+        java.time.LocalDate today = ResponsibleMode.today();
+        settingResponsible = true;
+        refreshResponsibleSetting();
+        preferencesQueue().commit(() -> ResponsibleMode.set(getApplicationContext(), enabled, today),
+                () -> handler.post(this::responsibleSettingSaved),
+                ex -> { handler.post(this::responsibleSettingSaved); preferenceError(ex); });
+    }
+
+    private void responsibleSettingSaved() {
+        settingResponsible = false;
+        if (!isDestroyed()) refreshResponsibleSetting();
+    }
+
+    private void refreshResponsibleSetting() {
+        if (responsibleToggle == null) return;
+        long since = ResponsibleMode.since(this);
+        boolean locked = ResponsibleMode.locked(since, ResponsibleMode.today());
+        boolean enabled = since != ResponsibleMode.OFF;
+        if (responsibleToggle.isChecked() != enabled) {
+            responsibleToggle.setOnCheckedChangeListener(null);
+            responsibleToggle.setChecked(enabled);
+            styleToggle(responsibleToggle);
+        }
+        responsibleToggle.setOnCheckedChangeListener(this::changeResponsibleSetting);
+        responsibleToggle.setEnabled(!settingResponsible && !ResponsibleMode.saving() && !locked);
+        String note = "Up to " + PuzzleSave.LIMIT + " finishes per puzzle type each day, including wins and losses. Resets at local midnight."
+                + (locked ? " Locked on until the next local day." : " Once enabled, it stays on for the rest of the day.");
+        if (!android.text.TextUtils.equals(responsibleNote.getText(), note)) responsibleNote.setText(note);
+    }
+
     private void gameSettings(LinearLayout content) {
         if (settingsGame.equals("SUDOKU")) {
             addCopy(content, "Auto notes", 22, palette.ink, 12);
@@ -808,6 +860,7 @@ public final class MainActivity extends Activity {
                         (view, enabled) -> {
                             if (game != null && game.difficulty == difficulty) {
                                 saveSession.dispatch(owner -> {
+                                    if (owner.limited()) return;
                                     owner.game.setAutoNotes(enabled);
                                     owner.save(value -> value.persistPreference(autoNotesKey(difficulty), enabled));
                                 });
@@ -982,6 +1035,11 @@ public final class MainActivity extends Activity {
         TextView details = text(game.difficulty.label + "  \u00b7  " + time(game.elapsedMillis), 24, palette.accent);
         details.setGravity(Gravity.CENTER);
         result.addView(details, new LinearLayout.LayoutParams(-1, dp(64)));
+        if (limited()) {
+            TextView limit = text(ResponsibleMode.LIMIT_MESSAGE, 14, palette.muted);
+            limit.setGravity(Gravity.CENTER);
+            addControl(result, limit, 40, 8);
+        }
         Button next = button("Done", true);
         next.setOnClickListener(v -> navigate(Screen.MENU));
         addControl(result, next, 56, 0);
@@ -996,7 +1054,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestNewGame(Sudoku.Difficulty difficulty) {
-        if (loading) return;
+        if (loading || ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
         if (game != null && !game.won()) {
             new AlertDialog.Builder(this).setTitle("Replace this game?")
                     .setMessage("Your current game and undo history will be replaced by a new "
@@ -1012,7 +1070,7 @@ public final class MainActivity extends Activity {
         startedAt = SystemClock.elapsedRealtime();
         render(false);
         saveSession.dispatch(owner -> {
-            if (owner.game != null && destination != Screen.PLAY && destination != Screen.WIN
+            if (owner.game != null && !owner.limited() && destination != Screen.PLAY && destination != Screen.WIN
                     && destination != Screen.SETTINGS) owner.game.armedDigit = 0;
             owner.save(value -> { if (value.screen == Screen.PLAY && value.game != null) value.refreshGame(); });
         });
@@ -1035,6 +1093,7 @@ public final class MainActivity extends Activity {
 
     private void generate(Sudoku.Difficulty difficulty) {
         if (saveSession.defer(owner -> owner.generate(difficulty))) return;
+        if (ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
         updateElapsed();
         loading = true;
         requestedDifficulty = difficulty;
@@ -1065,7 +1124,7 @@ public final class MainActivity extends Activity {
                     loading = false;
                     startedAt = SystemClock.elapsedRealtime();
                     Screen origin = screen;
-                    save(owner -> { if (owner.screen == origin) owner.screen = Screen.PLAY; owner.render(false); });
+                    save(PuzzleSave.Edit.REPLACE, owner -> { if (owner.screen == origin) owner.screen = Screen.PLAY; owner.render(false); });
                 });
             } catch (CancellationException ex) {
                 Log.i("Sudoku", "Puzzle generation cancelled");
@@ -1083,17 +1142,23 @@ public final class MainActivity extends Activity {
     }
 
     private File savedGame() { return new File(getFilesDir(), "current-game.bin"); }
+    private boolean limited() { return ResponsibleMode.limited(this, puzzleSave); }
+    private boolean readOnly() { return game.won() || limited(); }
 
     private void save() { saveSession.dispatch(owner -> owner.save(value -> {})); }
     private void save(java.util.function.Consumer<MainActivity> success) {
+        save(PuzzleSave.Edit.CHECKPOINT, success);
+    }
+    private void save(PuzzleSave.Edit edit, java.util.function.Consumer<MainActivity> success) {
         if (settingsOnly || game == null) { success.accept(this); return; }
+        java.time.LocalDate today = ResponsibleMode.today();
         Game snapshot = game.copy();
         game = committedGame == null ? null : committedGame.copy();
         if (board != null) { board.clearEntryFeedback(); board.setGame(game); }
         saveSession.commit(() -> {
                 java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
                 snapshot.write(new DataOutputStream(bytes));
-                saveFileFactory.apply(savedGame()).commit(bytes.toByteArray());
+                puzzleSave.commit(saveFileFactory.apply(savedGame()), bytes.toByteArray(), edit, ResponsibleMode.enabled(this), today);
         }, owner -> {
             long elapsed = owner.game != null && !snapshot.won() && Arrays.equals(owner.game.solution, snapshot.solution)
                     ? Math.max(snapshot.elapsedMillis, owner.game.elapsedMillis) : snapshot.elapsedMillis;
@@ -1102,11 +1167,12 @@ public final class MainActivity extends Activity {
             if (owner.board != null) { owner.board.setGame(owner.game); owner.board.acknowledgeInput(); }
             owner.startedAt = SystemClock.elapsedRealtime(); success.accept(owner);
         }, (owner, ex) -> {
-            owner.saveFailed = true;
+            owner.saveFailed = !(ex instanceof PuzzleSave.LimitReached);
             if (owner.board != null) owner.board.clearPendingInput();
             if (owner.board != null && owner.game != null && owner.screen == Screen.PLAY) owner.refreshGame();
             else owner.render(false);
-            new AlertDialog.Builder(owner).setTitle("Could not save game")
+            if (ex instanceof PuzzleSave.LimitReached) ResponsibleMode.notifyIfLimited(owner, puzzleSave);
+            else new AlertDialog.Builder(owner).setTitle("Could not save game")
                     .setMessage(R.string.save_error).setPositiveButton("OK", null).show();
         });
     }
@@ -1126,7 +1192,8 @@ public final class MainActivity extends Activity {
 
     private void updateElapsed() {
         long now = SystemClock.elapsedRealtime();
-        if (game != null && resumed && screen == Screen.PLAY && !loading) {
+        if (game != null && (committedGame == null || !committedGame.won())
+                && resumed && screen == Screen.PLAY && !loading && !showingLimit) {
             game.elapsedMillis += Math.max(0, now - startedAt);
         }
         startedAt = now;
@@ -1139,6 +1206,11 @@ public final class MainActivity extends Activity {
 
     private void updateClock() {
         if (game != null && clock != null) {
+            if (showingLimit) {
+                clock.setText(ResponsibleMode.LIMIT_MESSAGE);
+                clock.setContentDescription(ResponsibleMode.LIMIT_MESSAGE);
+                return;
+            }
             clock.setText(game.difficulty.label + " " + time(game.elapsedMillis));
             clock.setContentDescription(game.difficulty.label + ". Time played: " + game.elapsedMillis / 60000 + " minutes "
                     + game.elapsedMillis / 1000 % 60 + " seconds");
@@ -1148,6 +1220,8 @@ public final class MainActivity extends Activity {
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
             updateElapsed(); updateClock();
+            if (clock != null && showingLimit != limited()) refreshGame();
+            refreshResponsibleSetting();
             handler.postDelayed(this, 1000);
         }
     };
@@ -1270,7 +1344,7 @@ public final class MainActivity extends Activity {
         toggle.setPadding(dp(16), 0, dp(16), 0);
         toggle.setChecked(checked);
         styleToggle(toggle);
-        toggle.setOnCheckedChangeListener((view, enabled) -> {
+        if (listener != null) toggle.setOnCheckedChangeListener((view, enabled) -> {
             styleToggle(toggle); listener.onCheckedChanged(view, enabled);
         });
         return toggle;

@@ -2483,14 +2483,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
     }
     private Puzzle read(Mode mode) throws Exception { return PuzzleStore.decode(mode, bytes(mode)); }
     private PuzzleProgress progress(Mode mode) throws Exception {
-        byte[][] data = new byte[1][];
-        java.io.IOException[] failure = new java.io.IOException[1];
-        getInstrumentation().runOnMainSync(() -> {
-            try { data[0] = Files.readAllBytes(save(mode).toPath()); }
-            catch (java.io.IOException ex) { failure[0] = ex; }
-        });
-        if (failure[0] != null) throw failure[0];
-        return PuzzleStore.decodeProgress(mode, data[0]);
+        return PuzzleActivity.readProgress(getInstrumentation().getTargetContext(), mode);
     }
     private View binary(int value) { return require(activity.findViewById(android.R.id.content).findViewWithTag("binary-" + value)); }
     private void write(Mode mode, byte[] bytes) throws Exception {

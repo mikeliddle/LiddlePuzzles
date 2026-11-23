@@ -11,6 +11,7 @@ import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -28,7 +29,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         super.setUp();
         assertEquals("fyi.mllab.puzzle.validation", getInstrumentation().getTargetContext().getPackageName());
         preferences = getInstrumentation().getTargetContext().getSharedPreferences("settings", 0).getAll();
-        for (String name : new String[]{"current-game.bin", "daily-word-v1.bin", "puzzles/takuzu-v1.bin"})
+        for (String name : new String[]{"current-game.bin", "daily-word-v1.bin", "puzzles/takuzu-v1.bin", "puzzles/minesweeper-v1.bin"})
             for (String suffix : new String[]{"", ".bak", ".new"}) {
                 File target = file(name + suffix);
                 originals.put(target, target.exists() ? Files.readAllBytes(target.toPath()) : null);
@@ -66,6 +67,8 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         } finally { super.tearDown(); }
     }
     public void testFinalCommitFailuresDoNotPublishAndCanRetry() throws Throwable {
+        LocalDate today = ResponsibleMode.today();
+        PuzzleSave sudokuSave = PuzzleSave.forFile(file("current-game.bin"));
         Game fixture = new Game(Sudoku.generate(Sudoku.Difficulty.FOCUSED, new Random(41000)));
         System.arraycopy(fixture.solution, 0, fixture.values, 0, 81);
         int cell = 0; while (fixture.clues[cell] != 0) cell++;
@@ -87,6 +90,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
             game.selected = target; assertTrue(game.enter(game.solution[target]));
             invoke(activity, "changed");
             assertFalse(((Game) field(activity, "game")).won());
+            assertEquals(0, sudokuSave.finishedToday(today));
         });
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertFalse(((Game) field(activity, "game")).won());
@@ -100,6 +104,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         });
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertTrue(((Game) field(activity, "game")).won());
+        assertEquals(1, sudokuSave.finishedToday(today));
         assertTrue(getInstrumentation().getTargetContext().getSharedPreferences("settings", 0).contains("bestTime.FOCUSED"));
         close();
 
@@ -143,6 +148,135 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertEquals("a", ((DailyWord) field(activity, "game")).day(date).draft());
         close();
+    }
+
+    public void testResponsibleModeCountsLossesAndPreservesSavedPuzzleAtLimit() throws Throwable {
+        LocalDate today = ResponsibleMode.today();
+        var context = getInstrumentation().getTargetContext();
+        File minesFile = file("puzzles/minesweeper-v1.bin");
+        PuzzleSave minesSave = PuzzleActivity.quota(context, Mode.MINESWEEPER);
+        AndroidSaveFile.read(minesFile);
+        Minesweeper mines = new Minesweeper(331);
+        assertNull(mines.tap(0, false));
+        int mine = 0;
+        while (mines.mines[mine] == 0) mine++;
+        int target = mine;
+        byte[] ready = PuzzleStore.encode(mines);
+        Puzzle finished = mines.copy();
+        ((Minesweeper) finished).tap(target, false);
+        byte[] loss = PuzzleStore.encode(finished);
+        for (int i = 0; i < 8; i++) {
+            quotaWrite(minesFile, ready, PuzzleSave.Edit.REPLACE, false, today);
+            quotaWrite(minesFile, loss, PuzzleSave.Edit.FINISH, false, today);
+        }
+        quotaWrite(minesFile, ready, PuzzleSave.Edit.REPLACE, false, today);
+
+        Intent launchMines = new Intent().putExtra(PuzzleActivity.MODE, "MINESWEEPER");
+        start(PuzzleActivity.class, launchMines);
+        runTestOnUiThread(() -> invoke(activity, "cell", new Class<?>[]{int.class}, target));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertTrue(((Puzzle) field(activity, "game")).lost());
+        assertEquals(9, minesSave.finishedToday(today));
+        close();
+
+        ResponsibleMode.set(context, true, today);
+        quotaWrite(minesFile, ready, PuzzleSave.Edit.REPLACE, true, today);
+        start(PuzzleActivity.class, launchMines);
+        runTestOnUiThread(() -> invoke(activity, "cell", new Class<?>[]{int.class}, target));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertEquals(10, minesSave.finishedToday(today));
+        assertTrue(ResponsibleMode.limited(context, minesSave));
+        assertFalse(ResponsibleMode.limited(context, PuzzleActivity.quota(context, Mode.TAKUZU)));
+        close();
+
+        // A direct new-game intent must not overwrite the finished board either.
+        start(PuzzleActivity.class, new Intent(launchMines).putExtra(PuzzleActivity.NEW_SETTING, Mode.MINESWEEPER.defaultSetting()));
+        assertTrue(((Puzzle) field(activity, "game")).lost());
+        runTestOnUiThread(() -> invoke(activity, "undo"));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertTrue(((Puzzle) field(activity, "game")).lost());
+        assertEquals(10, minesSave.finishedToday(today));
+        try {
+            quotaWrite(minesFile, loss, PuzzleSave.Edit.FINISH, true, today);
+            fail("The 11th finish must be rejected");
+        } catch (PuzzleSave.LimitReached expected) { }
+        close();
+
+        LocalDate tomorrow = today.plusDays(1);
+        assertFalse(minesSave.limited(true, tomorrow));
+        quotaWrite(minesFile, ready, PuzzleSave.Edit.REPLACE, true, tomorrow);
+        assertEquals(0, minesSave.finishedToday(tomorrow));
+        quotaWrite(minesFile, loss, PuzzleSave.Edit.FINISH, true, tomorrow);
+        assertEquals(1, minesSave.finishedToday(tomorrow));
+        quotaWrite(minesFile, ready, PuzzleSave.Edit.UNDO_FINISH, true, tomorrow);
+        quotaWrite(minesFile, loss, PuzzleSave.Edit.FINISH, true, tomorrow);
+        assertEquals("Undo and re-finish is the same playthrough", 1, minesSave.finishedToday(tomorrow));
+    }
+
+    public void testResponsibleModeSettingsLockAndOffModeTally() throws Throwable {
+        var context = getInstrumentation().getTargetContext();
+        LocalDate today = ResponsibleMode.today();
+        File file = file("current-game.bin");
+        AndroidSaveFile.read(file);
+        for (int i = 0; i < 11; i++) {
+            quotaWrite(file, new byte[]{1}, PuzzleSave.Edit.REPLACE, false, today);
+            quotaWrite(file, new byte[]{2}, PuzzleSave.Edit.FINISH, false, today);
+        }
+        PuzzleSave save = PuzzleSave.forFile(file);
+        assertEquals(11, save.finishedToday(today));
+        assertFalse(ResponsibleMode.limited(context, save));
+        start(MainActivity.class, new Intent().putExtra(MainActivity.OPEN_SETTINGS, true));
+        runTestOnUiThread(() -> {
+            android.widget.Switch toggle = (android.widget.Switch) field(activity, "responsibleToggle");
+            assertFalse(toggle.isChecked());
+            assertTrue(toggle.isEnabled());
+            toggle.performClick();
+        });
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        runTestOnUiThread(() -> {
+            android.widget.Switch toggle = (android.widget.Switch) field(activity, "responsibleToggle");
+            assertTrue(toggle.isChecked());
+            assertFalse(toggle.isEnabled());
+        });
+        assertTrue(ResponsibleMode.limited(context, save));
+        ResponsibleMode.set(context, false, today);
+        assertTrue(ResponsibleMode.enabled(context));
+        LocalDate tomorrow = today.plusDays(1);
+        ResponsibleMode.set(context, false, tomorrow);
+        assertFalse(ResponsibleMode.enabled(context));
+        ResponsibleMode.set(context, true, tomorrow);
+        ResponsibleMode.set(context, false, tomorrow);
+        assertTrue(ResponsibleMode.enabled(context));
+        assertEquals(tomorrow.toEpochDay(), ResponsibleMode.since(context));
+    }
+
+    public void testResponsibleModeLeavesDailyWordOnItsOriginalSchedule() throws Throwable {
+        var context = getInstrumentation().getTargetContext();
+        ResponsibleMode.set(context, true, ResponsibleMode.today());
+        start(DailyWordActivity.class, new Intent());
+        LocalDate date = (LocalDate) field(activity, "date");
+        DailyWord game = (DailyWord) field(activity, "game");
+        for (char letter : game.answer(date).toCharArray())
+            runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, letter, false, false));
+        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, '\0', false, true));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        DailyWord won = (DailyWord) field(activity, "game");
+        assertTrue(won.won(won.day(date)));
+        PuzzleSave save = PuzzleSave.forFile(file("daily-word-v1.bin"));
+        assertEquals(1, save.finishedToday(date));
+        close();
+        start(DailyWordActivity.class, new Intent());
+        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'a', false, false));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        DailyWord reopened = (DailyWord) field(activity, "game");
+        assertTrue(reopened.won(reopened.day(date)));
+        assertTrue(reopened.day(date).draft().isEmpty());
+        assertEquals(1, save.finishedToday(date));
+    }
+
+    private void quotaWrite(File file, byte[] payload, PuzzleSave.Edit edit, boolean enabled, LocalDate today) throws IOException {
+        SaveQueue.forPath(file.getAbsolutePath()).writeBlocking(
+                () -> PuzzleSave.forFile(file).commit(AndroidSaveFile.at(file), payload, edit, enabled, today));
     }
     public void testFailedRolloverBlocksOldDateInputAndRetries() throws Throwable {
         start(DailyWordActivity.class, new Intent());
@@ -372,7 +506,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
             NativeSaveAwaiter.await(getInstrumentation(), activity);
             getInstrumentation().runOnMainSync(activity::finish);
             getInstrumentation().waitForIdleSync();
-            for (String name : new String[]{"current-game.bin", "daily-word-v1.bin", "puzzles/takuzu-v1.bin"})
+            for (String name : new String[]{"current-game.bin", "daily-word-v1.bin", "puzzles/takuzu-v1.bin", "puzzles/minesweeper-v1.bin"})
                 try { SaveQueue.forPath(file(name).getAbsolutePath()).flushBlocking(); }
                 catch (IOException ex) { throw new AssertionError(ex); }
         }

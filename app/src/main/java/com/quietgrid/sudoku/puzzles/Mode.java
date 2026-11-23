@@ -21,7 +21,8 @@ public enum Mode {
     NONOGRAM("Nonograms",
             "Numbers beside a row or above a column describe its filled runs, in order. Separate consecutive runs by at least one empty square. "
             + "A clue of 0 means no filled squares. For example, 2 1 means two filled squares, a gap, then one filled square.\n\n"
-            + "Tap a square to fill it (check mark), or hold to cross it empty. Repeat the same mark to clear to undecided (blank). "
+            + "Each tap cycles a square from undecided (blank) to filled (check mark), then crossed empty (X), then blank again. "
+            + "Hold to enter a cross directly, or clear an existing cross to blank. "
             + "Native long-click actions also enter or clear a cross. Match every row and column clue. "
             + "A red dashed clue outline means no placement of its runs fits your current filled and crossed-empty squares. Undecided squares stay unconstrained; an unfinished line alone is not an error. "
             + "The signal concerns the whole row or column, not one particular square, and does not check against a hidden answer. Correcting marks or Undo updates it immediately. "

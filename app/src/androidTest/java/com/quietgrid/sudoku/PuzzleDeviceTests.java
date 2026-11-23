@@ -1096,9 +1096,11 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         Mode mode = Mode.NONOGRAM;
         write(mode, fixture(mode, "initial")); launch(mode);
         tap(square(0)); assertEquals(1, ((Nonogram) read(mode)).values[0]);
+        SystemClock.sleep(600);
+        tap(square(0)); assertEquals(2, ((Nonogram) read(mode)).values[0]);
         tap(square(0)); assertEquals(0, ((Nonogram) read(mode)).values[0]);
         holdSquare(square(0), false); assertEquals(2, ((Nonogram) read(mode)).values[0]);
-        assertEquals("Hold release produces one edit only", 3, progress(mode).undoCount());
+        assertEquals("Hold release produces one edit only", 4, progress(mode).undoCount());
         holdSquare(square(0), false); assertEquals(0, ((Nonogram) read(mode)).values[0]);
         tap(require(findDescription("Undo last move"))); assertEquals(2, ((Nonogram) read(mode)).values[0]);
         byte[] before = PuzzleStore.encode(read(mode));
@@ -1109,8 +1111,12 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertTrue(node.getActionList().stream().anyMatch(a -> a.getId() == AccessibilityNodeInfo.ACTION_LONG_CLICK
                 && "Enter or clear cross".contentEquals(a.getLabel())));
         getInstrumentation().runOnMainSync(() -> target.performAccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, null));
+        SaveQueue.forPath(save(mode).getAbsolutePath()).flushBlocking();
+        getInstrumentation().waitForIdleSync();
         assertEquals(0, ((Nonogram) read(mode)).values[0]);
         getInstrumentation().runOnMainSync(() -> target.performAccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, null));
+        SaveQueue.forPath(save(mode).getAbsolutePath()).flushBlocking();
+        getInstrumentation().waitForIdleSync();
         assertEquals(1, ((Nonogram) read(mode)).values[0]);
         holdSquare(square(1), false); assertEquals(2, ((Nonogram) read(mode)).values[1]);
         capture("bugfix-nonogram-tap-hold.png");
@@ -1118,6 +1124,62 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         close(); launch(mode);
         assertEquals(1, ((Nonogram) read(mode)).values[0]);
         assertEquals(undoCount, progress(mode).undoCount());
+    }
+
+    public void testNonogramRapidTapsQueueEachCycleUntilDurable() throws Exception {
+        Mode mode = Mode.NONOGRAM;
+        write(mode, fixture(mode, "initial")); launch(mode);
+        java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        java.lang.reflect.Field factory = PuzzleActivity.class.getDeclaredField("saveFileFactory");
+        factory.setAccessible(true);
+        getInstrumentation().runOnMainSync(() -> {
+            try {
+                factory.set(activity, (java.util.function.Function<File, DurableFile>) target -> {
+                    DurableFile.Operations delegate = AndroidSaveFile.operations();
+                    return new DurableFile(target, new DurableFile.Operations() {
+                        @Override public void copy(File from, File to) throws java.io.IOException {
+                            started.countDown();
+                            try {
+                                if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new java.io.IOException("Test save stall timed out");
+                            } catch (InterruptedException ex) { throw new java.io.IOException(ex); }
+                            delegate.copy(from, to);
+                        }
+                        @Override public void write(File file, byte[] bytes) throws java.io.IOException { delegate.write(file, bytes); }
+                        @Override public void replace(File from, File to) throws java.io.IOException { delegate.replace(from, to); }
+                        @Override public void delete(File file) throws java.io.IOException { delegate.delete(file); }
+                        @Override public void syncDirectory(File dir) throws java.io.IOException { delegate.syncDirectory(dir); }
+                    });
+                });
+            } catch (IllegalAccessException ex) { throw new AssertionError(ex); }
+        });
+        try {
+            android.graphics.RectF bounds = ViewportChecks.bounds(square(0));
+            for (int tap = 0; tap < 2; tap++) {
+                long time = SystemClock.uptimeMillis();
+                MotionEvent down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
+                MotionEvent up = MotionEvent.obtain(time, time + 30, MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                getInstrumentation().sendPointerSync(down); getInstrumentation().sendPointerSync(up);
+                down.recycle(); up.recycle();
+                if (tap == 0) assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            assertEquals("No early publication during stalled save", "", ((TextView) square(0)).getText().toString());
+            release.countDown();
+            long deadline = SystemClock.uptimeMillis() + 5000;
+            while (progress(mode).undoCount() < 2 && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(30);
+            settle();
+            assertEquals("Two rapid real taps persist a cross, not blank", 2, ((Nonogram) read(mode)).values[0]);
+            assertEquals(2, progress(mode).undoCount());
+            tap(require(findDescription("Undo last move"))); assertEquals(1, ((Nonogram) read(mode)).values[0]);
+            tap(require(findDescription("Undo last move"))); assertEquals(0, ((Nonogram) read(mode)).values[0]);
+        } finally {
+            release.countDown();
+            getInstrumentation().runOnMainSync(() -> {
+                try { factory.set(activity, (java.util.function.Function<File, DurableFile>) AndroidSaveFile::at); }
+                catch (IllegalAccessException ex) { throw new AssertionError(ex); }
+            });
+        }
     }
 
     public void testSlitherlinkBinaryEdgesAllSizesAndInterruptions() throws Exception {

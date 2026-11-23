@@ -390,6 +390,17 @@ public final class PuzzleTests {
 
     private static void nonogramContradictions() throws Exception {
         Nonogram base = Nonogram.generate(new Random(117), new Generation());
+        PuzzleProgress taps = new PuzzleProgress(base);
+        for (int expected : new int[]{1, 2, 0}) {
+            Nonogram next = ((Nonogram) taps.game).copy(); next.cycle(0);
+            taps = PuzzleStore.decodeProgress(Mode.NONOGRAM, PuzzleStore.encode(taps.edited(next)));
+            check(((Nonogram) taps.game).values[0] == expected, "Each persisted tap advances check, cross, blank");
+        }
+        check(taps.undoCount() == 3, "Each cycle tap has one Undo step");
+        for (int expected : new int[]{2, 1, 0}) {
+            taps = taps.undo();
+            check(((Nonogram) taps.game).values[0] == expected, "Undo restores each preceding tap state");
+        }
         for (boolean column : new boolean[]{false, true}) {
             Nonogram line = base.copy(); Arrays.fill(line.values, 0);
             (column ? line.columns : line.rows)[0] = new int[]{2};

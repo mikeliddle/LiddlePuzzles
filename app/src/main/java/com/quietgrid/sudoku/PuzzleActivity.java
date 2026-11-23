@@ -295,7 +295,7 @@ public final class PuzzleActivity extends Activity {
                 change(next -> ((Numberlink) next).toggle(previous, cell));
             }
         } else change(next -> {
-            if (next instanceof Nonogram) ((Nonogram) next).mark(cell, 1);
+            if (next instanceof Nonogram) ((Nonogram) next).cycle(cell);
             else if (next instanceof Minesweeper) {
                 Minesweeper mine = (Minesweeper) next;
                 return mine.tap(cell, flag && mine.cells[cell] != 1);
@@ -684,7 +684,9 @@ public final class PuzzleActivity extends Activity {
             } else if (game instanceof Nonogram) {
                 int value = ((Nonogram) game).values[i];
                 label = value == 1 ? "\u2713" : value == 2 ? "\u00d7" : ""; meaning = value == 1 ? "filled" : value == 2 ? "crossed empty" : "undecided";
-                meaning += ", tap to fill or clear, hold to cross or clear";
+                meaning += value == 0 ? ", tap to fill, hold to cross"
+                        : value == 1 ? ", tap to cross, hold to cross"
+                        : ", tap or hold to clear";
             } else if (game instanceof Futoshiki) {
                 Futoshiki p = (Futoshiki) game; label = p.values[i] == 0 ? "" : "" + p.values[i]; fixed = p.clues[i] != 0;
                 meaning = label.isEmpty() ? "empty" : label;

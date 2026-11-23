@@ -2072,7 +2072,9 @@ public final class DeviceTests extends InstrumentationTestCase {
 
     private Game saved() throws Exception {
         getInstrumentation().waitForIdleSync();
-        try (DataInputStream in = new DataInputStream(new FileInputStream(saveFile()))) { return Game.read(in); }
+        try (DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(AndroidSaveFile.read(saveFile())))) {
+            return Game.read(in);
+        }
     }
 
     private BoardView board() {

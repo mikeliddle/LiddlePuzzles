@@ -18,6 +18,8 @@ from your browser or file manager only if Android asks.
 
 ## About
 
+Turn on **Responsible mode** in Settings to limit each puzzle type to 10 finishes per local day. Wins and losses count, including those finished before you turned the mode on; unfinished games do not. You can still view saved puzzles at the limit. Play resets at local midnight, and you can turn the mode off starting the day after you enabled it. Daily Word is still one puzzle per day.
+
 This app, including its code and artwork, was generated with AI under human
 direction.
 

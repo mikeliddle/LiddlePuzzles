@@ -85,6 +85,8 @@ public final class PuzzleActivity extends Activity {
     private int newSetting;
     private SaveQueue saves;
     private SaveSession<PuzzleActivity> saveSession;
+    private PuzzleSave puzzleSave;
+    private boolean showingLimit;
     private byte[] replacementSave;
     private static final class Retained {
         final SaveSession<PuzzleActivity> session;
@@ -119,6 +121,7 @@ public final class PuzzleActivity extends Activity {
         newRequested = state == null ? getIntent().hasExtra(NEW_SETTING) : state.getBoolean("newRequested");
         newSetting = state == null ? getIntent().getIntExtra(NEW_SETTING, mode.defaultSetting())
                 : state.getInt(NEW_SETTING, mode.defaultSetting());
+        puzzleSave = quota(this, mode);
         saves = SaveQueue.forPath(saved().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post, ex -> Log.e("Puzzle", "Game commit failed", ex));
@@ -131,11 +134,17 @@ public final class PuzzleActivity extends Activity {
         open();
     }
 
-    private File saved() { return new File(getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin"); }
+    private File saved() { return saved(this, mode); }
+
+    private static File saved(Context context, Mode mode) {
+        return new File(context.getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin");
+    }
+
+    static PuzzleSave quota(Context context, Mode mode) { return PuzzleSave.forFile(saved(context, mode)); }
+    private boolean limited() { return ResponsibleMode.limited(this, puzzleSave); }
 
     static PuzzleProgress readProgress(Context context, Mode mode) throws IOException {
-        File file = new File(context.getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin");
-        byte[] bytes = AndroidSaveFile.read(file, PuzzleStore.MAX_SAVE_BYTES);
+        byte[] bytes = AndroidSaveFile.read(saved(context, mode), PuzzleStore.MAX_SAVE_BYTES);
         return bytes == null ? null : PuzzleStore.decodeProgress(mode, bytes);
     }
 
@@ -171,7 +180,7 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void requestNew() {
-        if (busy) return;
+        if (busy || ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
         if (loadFailed || game != null && !game.solved() && !game.lost()) {
             new AlertDialog.Builder(this).setTitle("Replace this puzzle?")
                     .setMessage(loadFailed ? "The unreadable save will be replaced only after a new puzzle is generated and saved."
@@ -182,6 +191,7 @@ public final class PuzzleActivity extends Activity {
 
     private void generate() {
         if (saveSession.defer(PuzzleActivity::generate)) return;
+        if (limited()) { showLimit(); return; }
         newRequested = true;
         playTime.setRunning(false); checkpointTime();
         if (feedback != null) feedback.stop();
@@ -196,7 +206,7 @@ public final class PuzzleActivity extends Activity {
                     busy = false;
                     PuzzleProgress fresh = new PuzzleProgress(created);
                     replacementSave = createdSave;
-                    persist(fresh, owner -> {
+                    persist(fresh, PuzzleSave.Edit.REPLACE, owner -> {
                         owner.newRequested = false; owner.replacementSave = null;
                         owner.progress = fresh; owner.game = created; owner.loadFailed = false;
                         owner.playTime.restore(0);
@@ -215,14 +225,22 @@ public final class PuzzleActivity extends Activity {
         });
     }
 
-    private void persist(PuzzleProgress next, java.util.function.Consumer<PuzzleActivity> success) {
-        saveSession.commit(() -> write(next), success, (owner, ex) -> {
+    private void showLimit() {
+        newRequested = false; replacementSave = null;
+        if (game != null) showBoard();
+        refresh(null);
+    }
+
+    private void persist(PuzzleProgress next, PuzzleSave.Edit edit, java.util.function.Consumer<PuzzleActivity> success) {
+        java.time.LocalDate today = ResponsibleMode.today();
+        saveSession.commit(() -> write(next, edit, today), success, (owner, ex) -> {
+            if (ex instanceof PuzzleSave.LimitReached) { owner.showLimit(); return; }
             if (owner.newRequested) owner.generationFailed = true;
             owner.saveError(ex);
         });
     }
-    private void write(PuzzleProgress next) throws IOException {
-        saveFileFactory.apply(saved()).commit(PuzzleStore.encode(next));
+    private void write(PuzzleProgress next, PuzzleSave.Edit edit, java.time.LocalDate today) throws IOException {
+        puzzleSave.commit(saveFileFactory.apply(saved()), PuzzleStore.encode(next), edit, ResponsibleMode.enabled(this), today);
         durableElapsed = next.elapsedMillis;
         savedRevision++;
     }
@@ -232,7 +250,7 @@ public final class PuzzleActivity extends Activity {
     }
     private void change(Function<Puzzle, String> action) {
         if (saveSession.defer(owner -> owner.change(action))) return;
-        if (busy || game == null || game.solved() || game.lost()) return;
+        if (busy || game == null || game.solved() || game.lost() || limited()) return;
         minesFeedback.stop();
         feedback.stop();
         playTime.setRunning(false);
@@ -244,7 +262,7 @@ public final class PuzzleActivity extends Activity {
         if (edited == current) { refresh(null); return; }
         Puzzle before = game;
         PuzzleActivity origin = this;
-        persist(edited, owner -> {
+        persist(edited, next.solved() || next.lost() ? PuzzleSave.Edit.FINISH : PuzzleSave.Edit.PLAY, owner -> {
             if (next.solved() || next.lost()) owner.playTime.restore(edited.elapsedMillis);
             owner.progress = edited; owner.game = next; owner.refresh(null);
             if (owner == origin && owner.resumed && owner.focused && next instanceof Minesweeper)
@@ -257,12 +275,12 @@ public final class PuzzleActivity extends Activity {
 
     private void undo() {
         if (saveSession.defer(PuzzleActivity::undo)) return;
-        if (busy || progress == null || !progress.canUndo()) return;
+        if (busy || progress == null || !progress.canUndo() || limited()) return;
         minesFeedback.stop();
         feedback.stop();
         playTime.setRunning(false); completion.stop();
         PuzzleProgress previous = progress.withElapsed(playTime.elapsedMillis()).undo();
-        persist(previous, owner -> {
+        persist(previous, game.solved() || game.lost() ? PuzzleSave.Edit.UNDO_FINISH : PuzzleSave.Edit.PLAY, owner -> {
             owner.progress = previous; owner.game = previous.game; owner.selected = -1; owner.binaryArmed = -1;
             owner.refresh(null); if (owner.resumed) owner.undo.announceForAccessibility("Move undone.");
         });
@@ -270,13 +288,13 @@ public final class PuzzleActivity extends Activity {
 
     private void chooseBinary(int value) {
         if (saveSession.defer(owner -> owner.chooseBinary(value))) return;
-        if (busy || !(game instanceof Takuzu) || game.solved()) return;
+        if (busy || !(game instanceof Takuzu) || game.solved() || limited()) return;
         selected = -1; binaryArmed = binaryArmed == value ? -1 : value; refresh(null);
     }
 
     private void cell(int cell) {
         if (saveSession.defer(owner -> owner.cell(cell))) return;
-        if (busy || game == null || game.solved() || game.lost()) return;
+        if (busy || game == null || game.solved() || game.lost() || limited()) return;
         if (game instanceof Takuzu) {
             if (((Takuzu) game).clues[cell] >= 0) return;
             selected = -1;
@@ -372,6 +390,8 @@ public final class PuzzleActivity extends Activity {
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ScreenChrome.centerTitle(heading, titleSlot);
         clock = text("0:00", 18); clock.setTag("elapsed-time"); clock.setGravity(Gravity.CENTER);
+        clock.setSingleLine(true);
+        clock.setAutoSizeTextTypeUniformWithConfiguration(10, 18, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         clock.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         content.addView(clock, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, getResources().getConfiguration().fontScale))));
         status = text("", 16); status.setTag("puzzle-feedback"); status.setPadding(dp(4), 0, dp(4), 0);
@@ -611,9 +631,10 @@ public final class PuzzleActivity extends Activity {
 
     private void refresh(String message) {
         if (status == null) return;
+        showingLimit = limited();
         syncTime();
         newPuzzle.setEnabled(!busy); retry.setEnabled(!busy);
-        undo.setEnabled(!busy && progress != null && progress.canUndo());
+        undo.setEnabled(!showingLimit && !busy && progress != null && progress.canUndo());
         undo.setAlpha(undo.isEnabled() ? 1f : .38f);
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
         boolean terminal = game != null && (game.solved() || game.lost());
@@ -625,7 +646,7 @@ public final class PuzzleActivity extends Activity {
         int errorCount = 0;
         if (binaryErrors != null) for (String error : binaryErrors) if (error != null) errorCount++;
         if (futoErrors != null) for (String error : futoErrors) if (error != null) errorCount++;
-        String normal = game == null ? "" : game.solved() ? "Puzzle complete!" : game.lost() ? "Mine hit"
+        String normal = game == null ? showingLimit ? ResponsibleMode.LIMIT_MESSAGE : "" : game.solved() ? "Puzzle complete!" : game.lost() ? "Mine hit"
                 : "";
         String feedback = message != null ? message : normal;
         if (!android.text.TextUtils.equals(status.getText(), feedback)) status.setText(feedback);
@@ -666,7 +687,7 @@ public final class PuzzleActivity extends Activity {
             key.setContentDescription(label + (armed ? ", selected. Tap again to return to default tap 0, hold 1."
                     : ", select then tap squares repeatedly. With no tool selected, tap 0 or hold 1; repeat the same value to clear."));
             key.setTooltipText(label);
-            key.setEnabled(!busy && game != null && !terminal);
+            key.setEnabled(!showingLimit && !busy && game != null && !terminal);
             key.setAlpha(key.isEnabled() ? 1f : .38f);
             int ink = value == 2 ? palette.accent : binaryColor(value, false);
             if (key instanceof Button) ((Button) key).setTextColor(ink);
@@ -706,7 +727,7 @@ public final class PuzzleActivity extends Activity {
             cell.setContentDescription("Row " + (i / game.size() + 1) + " column " + (i % game.size() + 1) + ", " + meaning
                     + (fixed ? game instanceof Minesweeper ? ", revealed" : ", fixed" : "")
                     + (selected == i ? ", selected entry target" : ""));
-            cell.setEnabled(!busy && !terminal && (!fixed || game instanceof Takuzu || game instanceof Minesweeper));
+            cell.setEnabled(!showingLimit && !busy && !terminal && (!fixed || game instanceof Takuzu || game instanceof Minesweeper));
             cell.setTypeface(Typeface.DEFAULT, fixed ? Typeface.BOLD : Typeface.NORMAL);
             cell.setPaintFlags(game instanceof Takuzu && fixed || game instanceof Futoshiki && selected == i
                     ? cell.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG
@@ -741,7 +762,7 @@ public final class PuzzleActivity extends Activity {
             String action = value == 0 ? "Erase" : "Enter " + value;
             futoKeys.get(value).setContentDescription(action + (selected < 0 ? ", choose a square first"
                     : ", row " + (selected / 4 + 1) + " column " + (selected % 4 + 1)));
-            futoKeys.get(value).setEnabled(!busy && !terminal && selected >= 0 && ((Futoshiki) game).clues[selected] == 0);
+            futoKeys.get(value).setEnabled(!showingLimit && !busy && !terminal && selected >= 0 && ((Futoshiki) game).clues[selected] == 0);
             futoKeys.get(value).setAlpha(futoKeys.get(value).isEnabled() ? 1f : .38f);
             if (value == 0) actionSurface(futoKeys.get(value), surface(palette.surface, palette.line));
         }
@@ -764,8 +785,8 @@ public final class PuzzleActivity extends Activity {
             for (int edge = 0; edge < edges.length; edge++) edgeAdapter.add(edgeName(edge)
                     + (edges[edge] == 1 ? ", line" : edges[edge] == 2 ? ", crossed out" : ", undecided"));
             edgeAdapter.notifyDataSetChanged(); edgeChoice.setSelection(choice);
-            edgeChoice.setEnabled(!busy && !terminal); loopTool.setEnabled(!busy && !terminal);
-            loopLine.setEnabled(!busy && !terminal); loopCross.setEnabled(!busy && !terminal);
+            edgeChoice.setEnabled(!showingLimit && !busy && !terminal); loopTool.setEnabled(!showingLimit && !busy && !terminal);
+            loopLine.setEnabled(!showingLimit && !busy && !terminal); loopCross.setEnabled(!showingLimit && !busy && !terminal);
         }
         if (mineTool != null) {
             String mineAction = (flag ? "Flag mode, switch to reveal" : "Reveal mode, switch to flag") + ". "
@@ -779,7 +800,7 @@ public final class PuzzleActivity extends Activity {
             GradientDrawable toolFill = surface(flag ? palette.tint : palette.surface, flag ? palette.accent : palette.line);
             if (flag) toolFill.setStroke(dp(3), palette.accent);
             actionSurface(mineTool, toolFill);
-            mineTool.setEnabled(!busy && !terminal);
+            mineTool.setEnabled(!showingLimit && !busy && !terminal);
             mineTool.setAlpha(mineTool.isEnabled() ? 1f : .38f);
         }
         if (mineGrid != null) {
@@ -920,12 +941,12 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void syncTime() {
-        playTime.setRunning(resumed && focused && !busy && game != null && !game.solved() && !game.lost());
+        playTime.setRunning(!showingLimit && resumed && focused && !busy && game != null && !game.solved() && !game.lost());
         if (clock == null) return;
         long elapsed = playTime.elapsedMillis();
-        String label = ActivePlayTimer.label(elapsed);
+        String label = showingLimit ? ResponsibleMode.LIMIT_MESSAGE : ActivePlayTimer.label(elapsed);
         if (!android.text.TextUtils.equals(clock.getText(), label)) clock.setText(label);
-        clock.setContentDescription(ActivePlayTimer.description(elapsed));
+        clock.setContentDescription(showingLimit ? label : ActivePlayTimer.description(elapsed));
         clock.setVisibility(game == null ? View.GONE : View.VISIBLE);
     }
 
@@ -935,7 +956,7 @@ public final class PuzzleActivity extends Activity {
         PuzzleProgress timed = progress.withElapsed(playTime.elapsedMillis());
         if (timed.elapsedMillis != durableElapsed) {
             progress = timed;
-            saves.checkpoint(() -> write(timed), ex -> {
+            saves.checkpoint(() -> write(timed, PuzzleSave.Edit.CHECKPOINT, ResponsibleMode.today()), ex -> {
                 Log.e("Puzzle", "Timer checkpoint failed for " + mode, ex);
                 long failedRevision = savedRevision;
                 handler.post(() -> { if (!isDestroyed() && savedRevision == failedRevision) saveError(ex); });
@@ -945,7 +966,7 @@ public final class PuzzleActivity extends Activity {
 
     private final Runnable ticker = new Runnable() {
         @Override public void run() {
-            syncTime();
+            if (showingLimit != limited()) refresh(null); else syncTime();
             if (playTime.elapsedMillis() - durableElapsed >= 10000) checkpointTime();
             if (resumed) handler.postDelayed(this, 1000);
         }

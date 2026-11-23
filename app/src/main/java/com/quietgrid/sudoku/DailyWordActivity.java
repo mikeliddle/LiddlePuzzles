@@ -62,6 +62,7 @@ public final class DailyWordActivity extends Activity {
     private boolean resumed, focused;
     private SaveQueue saves;
     private SaveSession<DailyWordActivity> saveSession;
+    private PuzzleSave puzzleSave;
     private final java.util.concurrent.ExecutorService loader = java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean rolloverPending;
     private static final class Retained {
@@ -88,6 +89,7 @@ public final class DailyWordActivity extends Activity {
                 == Configuration.UI_MODE_NIGHT_YES;
         int color = getSharedPreferences("settings", MODE_PRIVATE).getInt("accentColor", 3);
         palette = new MainActivity.Palette(dark, color >= 0 && color < MainActivity.COLOR_NAMES.length ? color : 3);
+        puzzleSave = PuzzleSave.forFile(saved());
         saves = SaveQueue.forPath(saved().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
@@ -171,7 +173,7 @@ public final class DailyWordActivity extends Activity {
         if (submit) error = next.submit(day);
         else if (!(backspace ? next.erase(day) : next.letter(day, letter))) { syncTime(); return; }
         if (error != null) { refresh(error); announceFeedback(error); return; }
-        persist(next, owner -> {
+        persist(next, next.finished(day) ? PuzzleSave.Edit.DAILY_FINISH : PuzzleSave.Edit.PLAY, owner -> {
             if (owner.date.equals(enteredDate) && next.finished(next.day(enteredDate)))
                 owner.playTime.restore(next.day(enteredDate).elapsedMillis());
             owner.game = next; owner.refresh(null);
@@ -189,16 +191,19 @@ public final class DailyWordActivity extends Activity {
     }
 
     private void persist(DailyWord next, java.util.function.Consumer<DailyWordActivity> success) {
+        persist(next, PuzzleSave.Edit.CHECKPOINT, success);
+    }
+    private void persist(DailyWord next, PuzzleSave.Edit edit, java.util.function.Consumer<DailyWordActivity> success) {
         LocalDate committedDate = date;
-        saveSession.commit(() -> write(next), owner -> {
+        saveSession.commit(() -> write(next, edit, committedDate), owner -> {
             owner.durableDate = committedDate; owner.durableElapsed = next.day(committedDate).elapsedMillis();
             success.accept(owner);
         }, (owner, ex) -> { owner.rolloverPending = false; owner.saveError(ex); });
     }
-    private void write(DailyWord next) throws IOException {
+    private void write(DailyWord next, PuzzleSave.Edit edit, LocalDate today) throws IOException {
         java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
         next.write(new DataOutputStream(bytes));
-        saveFileFactory.apply(saved()).commit(bytes.toByteArray());
+        puzzleSave.commit(saveFileFactory.apply(saved()), bytes.toByteArray(), edit, ResponsibleMode.enabled(this), today);
         savedRevision++;
     }
     private void saveError(IOException ex) {
@@ -460,7 +465,7 @@ public final class DailyWordActivity extends Activity {
             game = next;
             LocalDate checkpointDate = date;
             saves.checkpoint(() -> {
-                write(next); durableDate = checkpointDate; durableElapsed = millis;
+                write(next, PuzzleSave.Edit.CHECKPOINT, checkpointDate); durableDate = checkpointDate; durableElapsed = millis;
             }, ex -> {
                 Log.e("DailyWord", "Timer checkpoint failed", ex);
                 long failedRevision = savedRevision;

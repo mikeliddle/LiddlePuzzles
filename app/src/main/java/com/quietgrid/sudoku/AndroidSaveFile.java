@@ -32,8 +32,6 @@ final class AndroidSaveFile {
     static byte[] read(File file, int limit) throws IOException {
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper())
             throw new IllegalStateException("Read saved progress on a worker, not the UI thread");
-        byte[][] result = {null};
-        SaveQueue.forPath(file.getAbsolutePath()).readBlocking(() -> result[0] = at(file).read(limit));
-        return result[0];
+        return PuzzleSave.forFile(file).read(at(file), limit);
     }
 }

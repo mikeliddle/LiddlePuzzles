@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -58,6 +59,8 @@ public final class MainActivity extends Activity {
     private Game game;
     private Game committedGame;
     private boolean settingsOnly;
+    private boolean sharedMode;
+    private String sharedLink, sharedToken, sharedLinkError;
     private SaveSession<MainActivity> saveSession;
     private static final java.util.concurrent.ConcurrentHashMap<String, Long> bestTimes = new java.util.concurrent.ConcurrentHashMap<>();
     private static final class Retained {
@@ -140,14 +143,25 @@ public final class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         preferences = getSharedPreferences("settings", MODE_PRIVATE);
+        sharedMode = BuildConfig.LOCAL_PUZZLE_SHARING && Intent.ACTION_VIEW.equals(getIntent().getAction());
+        if (sharedMode) {
+            sharedLink = getIntent().getDataString();
+            try { sharedToken = SudokuShare.token(sharedLink); }
+            catch (IllegalArgumentException ex) {
+                Log.e("Sudoku", "Invalid shared link", ex);
+                sharedLinkError = ex.getMessage();
+            }
+            screen = Screen.PLAY;
+        }
         settingsOnly = getIntent().getBooleanExtra(OPEN_SETTINGS, false);
+        if (sharedMode) settingsOnly = false;
         SaveQueue saves = SaveQueue.forPath(savedGame().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
                         ex -> Log.e("Sudoku", "Game commit failed", ex));
         saveSession.attach(this);
         migrateColor();
-        if (getIntent().getBooleanExtra(OPEN_SETTINGS, false)) {
+        if (settingsOnly) {
             screen = Screen.SETTINGS;
             settingsGame = getIntent().getStringExtra(SETTINGS_GAME);
             if (settingsGame != null && !settingsGame.equals("SUDOKU") && !settingsGame.equals("DAILY_WORD")) {
@@ -173,15 +187,23 @@ public final class MainActivity extends Activity {
             String restoreError = restore();
             handler.post(() -> {
                 if (isDestroyed()) return;
-                migrateAutoNotes(); recordBestSolve();
+                if (!sharedMode) migrateAutoNotes();
+                recordBestSolve();
                 if (screen == Screen.PLAY && game == null) screen = Screen.MENU;
                 else if (screen == Screen.PLAY && game.won()) screen = Screen.WIN;
                 if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
                 render(false); saveSession.ready();
-                if (restart != null) generate(restart);
-                if (restoreError != null) new AlertDialog.Builder(this).setTitle("Saved game could not be opened")
-                        .setMessage(restoreError + "\nChoose a difficulty to create a fresh puzzle.")
-                        .setPositiveButton("OK", null).show();
+                if (sharedMode && restoreError == null) save();
+                if (restart != null && !sharedMode) generate(restart);
+                if (restoreError != null) {
+                    AlertDialog.Builder error = new AlertDialog.Builder(this)
+                            .setTitle(sharedMode ? getString(R.string.shared_sudoku_error) : "Saved game could not be opened")
+                            .setMessage(sharedMode ? restoreError : restoreError + "\nChoose a difficulty to create a fresh puzzle.");
+                    if (sharedMode) error.setPositiveButton("Back", (dialog, which) -> finish())
+                            .setOnCancelListener(dialog -> finish());
+                    else error.setPositiveButton("OK", null);
+                    error.show();
+                }
             });
         });
     }
@@ -225,7 +247,7 @@ public final class MainActivity extends Activity {
         Arrays.fill(bank, null);
         updatePalette();
         if (game == null && (screen == Screen.PLAY || screen == Screen.WIN))
-            addCopy(root(false), "Opening saved puzzle...", 24, palette.ink, 0);
+            addCopy(root(false), sharedMode ? getString(R.string.shared_sudoku_loading) : "Opening saved puzzle...", 24, palette.ink, 0);
         else if (screen == Screen.PLAY) buildGame();
         else if (screen == Screen.SETTINGS) buildSettings();
         else if (screen == Screen.WIN) buildWin(animateWin);
@@ -313,11 +335,11 @@ public final class MainActivity extends Activity {
 
     private void buildMenu() {
         LinearLayout content = scrollContent(root(false));
-        ImageButton home = navigationButton(getString(R.string.back_to_puzzles), R.drawable.ic_back);
-        home.setOnClickListener(v -> navigate(Screen.HUB));
+        ImageButton home = navigationButton(getString(sharedMode ? R.string.close_shared_sudoku : R.string.back_to_puzzles), R.drawable.ic_back);
+        home.setOnClickListener(v -> { if (sharedMode) finish(); else navigate(Screen.HUB); });
         LinearLayout heading = row();
         heading.setGravity(Gravity.TOP);
-        TextView title = text("Sudoku", 26, palette.ink);
+        TextView title = text(sharedMode ? getString(R.string.shared_sudoku) : "Sudoku", 26, palette.ink);
         heading.setGravity(Gravity.TOP);
         heading.addView(home, new LinearLayout.LayoutParams(dp(48), dp(48)));
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -327,12 +349,26 @@ public final class MainActivity extends Activity {
         settings.setOnClickListener(v -> openSettings());
         heading.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ScreenChrome.pin(content, heading);
+        if (sharedMode) addCopy(content, getString(R.string.shared_sudoku_help), 16, palette.muted, 12);
         if (game != null && !game.won()) {
             Button resume = button("Resume", true);
-            resume.setContentDescription("Resume " + game.difficulty.label + " Sudoku, " + time(game.elapsedMillis));
+            resume.setContentDescription("Resume " + (sharedMode ? getString(R.string.shared_sudoku) : game.difficulty.label + " Sudoku")
+                    + ", " + time(game.elapsedMillis));
             resume.setOnClickListener(v -> navigate(Screen.PLAY));
             resume.setTag("puzzle-resume");
             ControlStyle.menuResume(content, resume, palette);
+        }
+        if (BuildConfig.LOCAL_PUZZLE_SHARING && game != null) {
+            Button share = button(getString(R.string.share_sudoku_local), false);
+            share.setOnClickListener(v -> sharePuzzle());
+            addControl(content, share, 56, 12);
+        }
+        if (sharedMode) {
+            Button leave = button(getString(R.string.close_shared_sudoku), false);
+            leave.setOnClickListener(v -> finish());
+            addControl(content, leave, 56, 12);
+            if (saveFailed) addCopy(content, getString(R.string.save_error), 14, palette.error, 0);
+            return;
         }
         addCopy(content, "Difficulty", 22, palette.ink, 12);
         for (Sudoku.Difficulty difficulty : Sudoku.Difficulty.values()) {
@@ -373,7 +409,7 @@ public final class MainActivity extends Activity {
         ImageButton menu = navigationButton("Menu", R.drawable.ic_back);
         menu.setOnClickListener(v -> navigate(Screen.MENU));
         header.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        TextView title = text("Sudoku", 25, palette.ink);
+        TextView title = text(sharedMode ? getString(R.string.shared_sudoku) : "Sudoku", 25, palette.ink);
         title.setGravity(Gravity.CENTER);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setSingleLine(true);
@@ -396,7 +432,12 @@ public final class MainActivity extends Activity {
         clock.setAutoSizeTextTypeUniformWithConfiguration(8, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         clock.setHorizontallyScrolling(false);
         clock.setMinHeight(dp(30));
-        details.addView(clock, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, getResources().getConfiguration().fontScale))));
+        details.addView(clock, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
+        if (BuildConfig.LOCAL_PUZZLE_SHARING) {
+            ImageButton share = navigationButton(getString(R.string.share_sudoku_local), R.drawable.ic_share);
+            share.setOnClickListener(v -> sharePuzzle());
+            details.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
         panel.addView(details);
         if (!landscape) panel.addView(board, new LinearLayout.LayoutParams(-1, -2));
 
@@ -908,7 +949,7 @@ public final class MainActivity extends Activity {
     }
 
     private void recordBestSolve() {
-        if (game == null || !game.won() || game.elapsedMillis < 0) return;
+        if (sharedMode || game == null || !game.won() || game.elapsedMillis < 0) return;
         String key = bestTimeKey(game.difficulty);
         bestTime(key);
         long elapsed = game.elapsedMillis;
@@ -979,7 +1020,8 @@ public final class MainActivity extends Activity {
         content.addView(title, new LinearLayout.LayoutParams(-1, dp(64)));
         LinearLayout result = new LinearLayout(this);
         result.setOrientation(LinearLayout.VERTICAL); result.setGravity(Gravity.CENTER);
-        TextView details = text(game.difficulty.label + "  \u00b7  " + time(game.elapsedMillis), 24, palette.accent);
+        TextView details = text((sharedMode ? getString(R.string.shared_sudoku) : game.difficulty.label)
+                + "  \u00b7  " + time(game.elapsedMillis), 24, palette.accent);
         details.setGravity(Gravity.CENTER);
         result.addView(details, new LinearLayout.LayoutParams(-1, dp(64)));
         Button next = button("Done", true);
@@ -992,7 +1034,8 @@ public final class MainActivity extends Activity {
             stage.addView(celebration, new FrameLayout.LayoutParams(-1, -1));
             celebration.start();
         }
-        title.announceForAccessibility("Puzzle solved. " + game.difficulty.label + ". Time " + time(game.elapsedMillis));
+        title.announceForAccessibility("Puzzle solved. " + (sharedMode ? getString(R.string.shared_sudoku) : game.difficulty.label)
+                + ". Time " + time(game.elapsedMillis));
     }
 
     private void requestNewGame(Sudoku.Difficulty difficulty) {
@@ -1022,10 +1065,10 @@ public final class MainActivity extends Activity {
         if (screen == Screen.SETTINGS && settingsGame != null && settingsFromGlobal) {
             settingsGame = null; settingsFromGlobal = false; render(false); return;
         }
-        if (screen == Screen.SETTINGS && getIntent().getBooleanExtra(OPEN_SETTINGS, false)) finish();
+        if (screen == Screen.SETTINGS && settingsOnly) finish();
         else if (screen == Screen.SETTINGS) navigate(settingsReturn);
         else if (screen == Screen.PLAY || screen == Screen.WIN) navigate(Screen.MENU);
-        else if (screen == Screen.MENU) navigate(Screen.HUB);
+        else if (screen == Screen.MENU) { if (sharedMode) finish(); else navigate(Screen.HUB); }
         else finish();
     }
 
@@ -1082,7 +1125,24 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private File savedGame() { return new File(getFilesDir(), "current-game.bin"); }
+    private void sharePuzzle() {
+        if (!BuildConfig.LOCAL_PUZZLE_SHARING || game == null) return;
+        saveSession.dispatch(owner -> {
+            if (owner.game == null) return;
+            Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, owner.getString(R.string.share_sudoku_message, SudokuShare.link(owner.game.clues)));
+            try { owner.startActivity(Intent.createChooser(send, owner.getString(R.string.share_sudoku_local))); }
+            catch (ActivityNotFoundException ex) {
+                Log.e("Sudoku", "No text sharing activity", ex);
+                new AlertDialog.Builder(owner).setTitle(R.string.share_sudoku_error)
+                        .setMessage(R.string.share_sudoku_no_app).setPositiveButton("OK", null).show();
+            }
+        });
+    }
+
+    private File savedGame() {
+        return new File(getFilesDir(), sharedMode ? "shared-sudoku-" + sharedToken + ".bin" : "current-game.bin");
+    }
 
     private void save() { saveSession.dispatch(owner -> owner.save(value -> {})); }
     private void save(java.util.function.Consumer<MainActivity> success) {
@@ -1113,11 +1173,26 @@ public final class MainActivity extends Activity {
 
     private String restore() {
         try {
+            if (sharedMode && sharedLinkError != null) return sharedLinkError;
+            Game imported = sharedMode ? SudokuShare.open(sharedLink) : null;
+            if (sharedMode) SaveQueue.forPath(savedGame().getAbsolutePath()).flushBlocking();
             byte[] bytes = AndroidSaveFile.read(savedGame());
-            if (bytes == null) return null;
-            game = Game.read(new DataInputStream(new java.io.ByteArrayInputStream(bytes)));
+            if (bytes == null) {
+                if (imported == null) return null;
+                game = imported;
+                if (autoNotes(game.difficulty)) game.setAutoNotes(true);
+                game.showMistakes = preferences.getBoolean("showMistakes", false);
+            } else {
+                Game restored = Game.read(new DataInputStream(new java.io.ByteArrayInputStream(bytes)));
+                if (imported != null && (!Arrays.equals(restored.clues, imported.clues)
+                        || !Arrays.equals(restored.solution, imported.solution))) throw new IOException("Shared save does not match the link");
+                game = restored;
+            }
             committedGame = game.copy();
             return null;
+        } catch (IllegalArgumentException ex) {
+            Log.e("Sudoku", "Shared puzzle rejected", ex);
+            return ex.getMessage();
         } catch (IOException ex) {
             Log.e("Sudoku", "Could not restore saved game", ex);
             return "The saved file is unreadable or damaged.";
@@ -1139,8 +1214,9 @@ public final class MainActivity extends Activity {
 
     private void updateClock() {
         if (game != null && clock != null) {
-            clock.setText(game.difficulty.label + " " + time(game.elapsedMillis));
-            clock.setContentDescription(game.difficulty.label + ". Time played: " + game.elapsedMillis / 60000 + " minutes "
+            String label = sharedMode ? getString(R.string.shared_sudoku) : game.difficulty.label;
+            clock.setText(label + " " + time(game.elapsedMillis));
+            clock.setContentDescription(label + ". Time played: " + game.elapsedMillis / 60000 + " minutes "
                     + game.elapsedMillis / 1000 % 60 + " seconds");
         }
     }
@@ -1156,6 +1232,14 @@ public final class MainActivity extends Activity {
         super.onResume();
         resumed = true; startedAt = SystemClock.elapsedRealtime();
         handler.post(ticker);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (!BuildConfig.LOCAL_PUZZLE_SHARING || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        // Keep a warm link's save queue and state separate from the activity it replaces.
+        startActivity(new Intent(intent).setClass(this, MainActivity.class).setFlags(0));
+        finish();
     }
 
     @Override protected void onPause() {

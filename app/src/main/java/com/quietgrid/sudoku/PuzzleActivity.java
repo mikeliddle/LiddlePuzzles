@@ -53,6 +53,9 @@ public final class PuzzleActivity extends Activity {
     private TextView[] pictureClues = new TextView[0];
     private Future<?> pending;
     private Mode mode;
+    private boolean shared;
+    private String sharedLink, sharedKey, sharedError;
+    private ImageButton share;
     private Puzzle game;
     private PuzzleProgress progress;
     private MainActivity.Palette palette;
@@ -103,6 +106,14 @@ public final class PuzzleActivity extends Activity {
         String id = getIntent().getStringExtra(MODE);
         try { mode = Mode.valueOf(id == null ? "" : id); }
         catch (IllegalArgumentException ex) { Log.e("Puzzle", "Unknown puzzle mode", ex); finish(); return; }
+        shared = PuzzleSharing.shared(getIntent());
+        if (shared) {
+            sharedLink = getIntent().getDataString();
+            try {
+                if (PuzzleShare.mode(sharedLink) != mode) throw new IllegalArgumentException("The link belongs to another puzzle mode.");
+                sharedKey = LocalShareLink.saveKey(sharedLink, PuzzleShare.kind(mode));
+            } catch (IllegalArgumentException ex) { Log.e("Puzzle", "Invalid shared link", ex); sharedError = ex.getMessage(); }
+        }
         if (state != null) {
             flag = state.getBoolean("flag"); selected = state.getInt("selected", -1);
             binaryArmed = state.getInt("binaryArmed", -1);
@@ -119,6 +130,7 @@ public final class PuzzleActivity extends Activity {
         newRequested = state == null ? getIntent().hasExtra(NEW_SETTING) : state.getBoolean("newRequested");
         newSetting = state == null ? getIntent().getIntExtra(NEW_SETTING, mode.defaultSetting())
                 : state.getInt(NEW_SETTING, mode.defaultSetting());
+        if (shared) { newRequested = false; newSetting = mode.defaultSetting(); }
         saves = SaveQueue.forPath(saved().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post, ex -> Log.e("Puzzle", "Game commit failed", ex));
@@ -131,7 +143,10 @@ public final class PuzzleActivity extends Activity {
         open();
     }
 
-    private File saved() { return new File(getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin"); }
+    private File saved() {
+        return new File(getFilesDir(), shared ? "shared-" + PuzzleShare.kind(mode) + "-" + sharedKey + ".bin"
+                : "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin");
+    }
 
     static PuzzleProgress readProgress(Context context, Mode mode) throws IOException {
         File file = new File(context.getFilesDir(), "puzzles/" + mode.name().toLowerCase(Locale.ROOT) + "-v1.bin");
@@ -143,7 +158,18 @@ public final class PuzzleActivity extends Activity {
         busy = true; refresh("Opening saved puzzle...");
         pending = worker.submit(() -> {
             try {
-                PuzzleProgress result = readProgress(this, mode);
+                PuzzleProgress result;
+                boolean freshShared = false;
+                if (shared) {
+                    if (sharedError != null) throw new IllegalArgumentException(sharedError);
+                    Puzzle imported = PuzzleShare.open(sharedLink);
+                    saves.flushBlocking();
+                    byte[] bytes = AndroidSaveFile.read(saved(), PuzzleStore.MAX_SAVE_BYTES);
+                    result = bytes == null ? new PuzzleProgress(imported) : PuzzleStore.decodeProgress(mode, bytes);
+                    if (!PuzzleShare.link(result.game).equals(sharedLink)) throw new IOException("Shared progress does not match this puzzle.");
+                    freshShared = bytes == null;
+                } else result = readProgress(this, mode);
+                boolean saveFreshShared = freshShared;
                 boolean replacementCommitted = result != null && replacementSave != null
                         && java.util.Arrays.equals(replacementSave, PuzzleStore.encode(result));
                 handler.post(() -> {
@@ -154,23 +180,27 @@ public final class PuzzleActivity extends Activity {
                     if (game != null && selected >= game.size() * game.size()) selected = -1;
                     if (replacementCommitted) newRequested = false;
                     saveSession.ready();
-                    if (newRequested) generate();
+                    if (saveFreshShared) {
+                        saveSession.dispatch(owner -> owner.persist(owner.progress, value -> { value.showBoard(); value.refresh(null); }));
+                    } else if (newRequested) generate();
                     else if (game == null) generate(); else { showBoard(); refresh(null); }
                 });
-            } catch (IOException ex) {
+            } catch (IOException | IllegalArgumentException | IllegalStateException ex) {
                 Log.e("Puzzle", "Could not read " + mode, ex);
                 handler.post(() -> {
                     if (isDestroyed()) return;
                     busy = false; loadFailed = true;
                     saveSession.ready();
                     if (newRequested) generate();
-                    else refresh("Saved progress could not be read. It has not been replaced. Retry, or choose New puzzle to replace it.");
+                    else refresh(shared ? "Shared puzzle could not be opened. " + ex.getMessage()
+                            : "Saved progress could not be read. It has not been replaced. Retry, or choose New puzzle to replace it.");
                 });
             }
         });
     }
 
     private void requestNew() {
+        if (shared) { showMenu(); return; }
         if (busy) return;
         if (loadFailed || game != null && !game.solved() && !game.lost()) {
             new AlertDialog.Builder(this).setTitle("Replace this puzzle?")
@@ -181,6 +211,7 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void generate() {
+        if (shared) throw new IllegalStateException("A shared puzzle cannot be replaced by generation.");
         if (saveSession.defer(PuzzleActivity::generate)) return;
         newRequested = true;
         playTime.setRunning(false); checkpointTime();
@@ -352,9 +383,10 @@ public final class PuzzleActivity extends Activity {
         LinearLayout heading = row();
         heading.setGravity(Gravity.TOP);
         ImageButton back = iconButton(getString(R.string.back_to_puzzles), R.drawable.ic_back);
-        back.setContentDescription("Back to " + mode.title + " menu");
+        back.setContentDescription(shared ? getString(R.string.close_shared_sudoku) : "Back to " + mode.title + " menu");
         back.setOnClickListener(v -> showMenu()); heading.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        TextView title = text(mode.title, 26); puzzleTitle = title; title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        TextView title = text(shared ? getString(R.string.shared_puzzle_title, mode.title) : mode.title, 26);
+        puzzleTitle = title; title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setSingleLine(true); title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
         title.setAutoSizeTextTypeUniformWithConfiguration(12, 26, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         FrameLayout titleSlot = new FrameLayout(this);
@@ -363,7 +395,8 @@ public final class PuzzleActivity extends Activity {
         heading.addView(titleSlot, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton help = iconButton("How to play " + mode.title, R.drawable.ic_help);
         help.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("How to play " + mode.title)
-                .setMessage(mode.help).setPositiveButton("Close", null).show());
+                .setMessage((shared ? getString(R.string.shared_puzzle_help) + "\n\n" : "") + mode.help)
+                .setPositiveButton("Close", null).show());
         heading.addView(help, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ImageButton settings = iconButton("Settings", R.drawable.ic_settings);
         gameSettingsButton = settings;
@@ -373,7 +406,16 @@ public final class PuzzleActivity extends Activity {
         ScreenChrome.centerTitle(heading, titleSlot);
         clock = text("0:00", 18); clock.setTag("elapsed-time"); clock.setGravity(Gravity.CENTER);
         clock.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
-        content.addView(clock, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, getResources().getConfiguration().fontScale))));
+        LinearLayout clockRow = row();
+        clockRow.addView(clock, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
+        if (BuildConfig.LOCAL_PUZZLE_SHARING && mode != Mode.MINESWEEPER) {
+            share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
+            share.setOnClickListener(v -> saveSession.dispatch(owner -> {
+                if (owner.game != null) PuzzleSharing.send(owner, owner.mode.title, PuzzleShare.link(owner.game));
+            }));
+            clockRow.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
+        content.addView(clockRow);
         status = text("", 16); status.setTag("puzzle-feedback"); status.setPadding(dp(4), 0, dp(4), 0);
         status.setGravity(Gravity.CENTER); status.setMaxLines(2);
         status.setAutoSizeTextTypeUniformWithConfiguration(10, 24, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
@@ -385,7 +427,8 @@ public final class PuzzleActivity extends Activity {
         GradientDrawable gutter = new GradientDrawable(); gutter.setColor(android.graphics.Color.TRANSPARENT);
         gutter.setSize(dp(8), 1); controls.setDividerDrawable(gutter);
         controls.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        ControlStyle.icon(newPuzzle, "New puzzle", R.drawable.ic_add, palette.accent);
+        ControlStyle.icon(newPuzzle, shared ? getString(R.string.close_shared_sudoku) : "New puzzle",
+                shared ? R.drawable.ic_close : R.drawable.ic_add, palette.accent);
         newPuzzle.setOnClickListener(v -> showMenu());
         newPuzzle.setTag("puzzle-input");
         LinearLayout.LayoutParams newLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
@@ -431,8 +474,8 @@ public final class PuzzleActivity extends Activity {
             while (content.getChildCount() > boardIndex) {
                 View child = content.getChildAt(boardIndex); content.removeViewAt(boardIndex); actions.addView(child);
             }
-            content.removeView(clock);
-            actions.addView(clock, 0);
+            content.removeView(clockRow);
+            actions.addView(clockRow, 0);
             LinearLayout.LayoutParams boardLayout = new LinearLayout.LayoutParams(-2, -2);
             boardLayout.setMarginEnd(dp(16));
             body.addView(boardArea, boardLayout);
@@ -613,6 +656,7 @@ public final class PuzzleActivity extends Activity {
         if (status == null) return;
         syncTime();
         newPuzzle.setEnabled(!busy); retry.setEnabled(!busy);
+        if (share != null) share.setEnabled(!busy && game != null && !loadFailed);
         undo.setEnabled(!busy && progress != null && progress.canUndo());
         undo.setAlpha(undo.isEnabled() ? 1f : .38f);
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
@@ -904,8 +948,13 @@ public final class PuzzleActivity extends Activity {
     }
     private void showMenu() {
         newRequested = false;
-        if (!getIntent().getBooleanExtra(FROM_MENU, false)) startActivity(new Intent(this, PuzzleMenuActivity.class).putExtra(MODE, mode.name()));
+        if (!shared && !getIntent().getBooleanExtra(FROM_MENU, false)) startActivity(new Intent(this, PuzzleMenuActivity.class).putExtra(MODE, mode.name()));
         finish();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        PuzzleSharing.warm(this, intent);
     }
 
     @SuppressWarnings("deprecation")

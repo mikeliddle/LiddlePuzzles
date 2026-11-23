@@ -42,6 +42,9 @@ public final class DailyWordActivity extends Activity {
     private final List<Button> letters = new ArrayList<>();
     private DailyWord game;
     private LocalDate date;
+    private boolean shared;
+    private String sharedLink, sharedKey, sharedError;
+    private LocalDate sharedDate;
     private DailyWordBoard board;
     private TextView status;
     private Button enter;
@@ -88,6 +91,12 @@ public final class DailyWordActivity extends Activity {
                 == Configuration.UI_MODE_NIGHT_YES;
         int color = getSharedPreferences("settings", MODE_PRIVATE).getInt("accentColor", 3);
         palette = new MainActivity.Palette(dark, color >= 0 && color < MainActivity.COLOR_NAMES.length ? color : 3);
+        shared = PuzzleSharing.shared(getIntent());
+        if (shared) {
+            sharedLink = getIntent().getDataString();
+            try { sharedKey = LocalShareLink.saveKey(sharedLink, WordShare.KIND); }
+            catch (IllegalArgumentException ex) { Log.e("DailyWord", "Invalid shared link", ex); sharedError = ex.getMessage(); }
+        }
         saves = SaveQueue.forPath(saved().getAbsolutePath());
         saveSession = getLastNonConfigurationInstance() instanceof Retained retained ? retained.session
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post,
@@ -96,7 +105,9 @@ public final class DailyWordActivity extends Activity {
         load();
     }
 
-    private File saved() { return new File(getFilesDir(), "daily-word-v1.bin"); }
+    private File saved() {
+        return new File(getFilesDir(), shared ? "shared-word-" + sharedKey + ".bin" : "daily-word-v1.bin");
+    }
 
     private void load() {
         LinearLayout opening = root(); opening.addView(home()); opening.addView(copy("Opening Daily Word...", 24, palette.ink));
@@ -106,18 +117,29 @@ public final class DailyWordActivity extends Activity {
         try (InputStreamReader guesses = new InputStreamReader(getAssets().open("daily-word/guesses-v1.txt"), StandardCharsets.US_ASCII);
              InputStreamReader answers = new InputStreamReader(getAssets().open("daily-word/answers-v1.txt"), StandardCharsets.US_ASCII)) {
             DailyWord loaded = new DailyWord(guesses, answers);
-            byte[] bytes = AndroidSaveFile.read(saved());
-            if (bytes != null) {
-                try (DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(bytes))) { loaded.read(in); }
+            LocalDate pinned = null;
+            if (shared) {
+                if (sharedError != null) throw new IllegalArgumentException(sharedError);
+                pinned = WordShare.date(sharedLink, loaded);
+                saves.flushBlocking();
             }
+            byte[] bytes = shared ? AndroidSaveFile.read(saved(), 4096) : AndroidSaveFile.read(saved());
+            if (bytes != null) {
+                try (DataInputStream in = new DataInputStream(new java.io.ByteArrayInputStream(bytes))) {
+                    if (shared) loaded.readShared(in, pinned); else loaded.read(in);
+                }
+            }
+            LocalDate sharedDay = pinned;
             handler.post(() -> {
                 if (isDestroyed()) return;
+                sharedDate = sharedDay;
                 game = loaded; date = today();
                 playTime.restore(game.day(date).elapsedMillis());
                 durableDate = bytes == null ? null : date; durableElapsed = game.day(date).elapsedMillis();
                 build(); refresh(null); saveSession.ready();
+                if (shared && bytes == null) saveSession.dispatch(owner -> owner.persist(owner.game, value -> {}));
             });
-        } catch (IOException ex) {
+        } catch (IOException | IllegalArgumentException ex) {
             Log.e("DailyWord", "Could not open daily word data", ex);
             handler.post(() -> {
             if (isDestroyed()) return;
@@ -125,7 +147,8 @@ public final class DailyWordActivity extends Activity {
             LinearLayout root = root();
             root.addView(home());
             root.addView(copy("Daily Word could not be opened", 24, palette.ink));
-            root.addView(copy("The word list or saved progress could not be read. Your saved file has not been replaced.", 16, palette.error));
+            root.addView(copy(shared ? "Shared Word could not be opened. " + ex.getMessage()
+                    : "The word list or saved progress could not be read. Your saved file has not been replaced.", 16, palette.error));
             Button retry = button("Retry", true);
             retry.setOnClickListener(v -> load());
             root.addView(retry, new LinearLayout.LayoutParams(-1, dp(56)));
@@ -134,9 +157,12 @@ public final class DailyWordActivity extends Activity {
         }
     }
 
-    private LocalDate today() { return DailyWord.today(clock, testZone != null ? testZone : ZoneId.systemDefault()); }
+    private LocalDate today() {
+        return shared && sharedDate != null ? sharedDate : DailyWord.today(clock, testZone != null ? testZone : ZoneId.systemDefault());
+    }
 
     boolean checkDate() {
+        if (shared) return false;
         if (game == null || today().equals(date)) return false;
         if (rolloverPending) return true;
         rolloverPending = true;
@@ -222,7 +248,7 @@ public final class DailyWordActivity extends Activity {
         heading.setGravity(Gravity.TOP);
         int keyHeight = dp(enlarged ? 52 * fontScale : wide ? 48 : 52);
         heading.addView(home(), new LinearLayout.LayoutParams(dp(48), dp(48)));
-        TextView title = copy("Daily Word", 26, palette.ink);
+        TextView title = copy(shared ? getString(R.string.shared_word_title, date.toString()) : "Daily Word", 26, palette.ink);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         title.setGravity(Gravity.CENTER);
         title.setSingleLine(true); title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
@@ -243,7 +269,18 @@ public final class DailyWordActivity extends Activity {
         elapsed.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         FrameLayout clockLine = new FrameLayout(this);
         clockLine.addView(elapsed, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(clockLine, new LinearLayout.LayoutParams(-1, dp(30 * Math.max(1, fontScale))));
+        LinearLayout clockRow = new LinearLayout(this);
+        clockRow.setGravity(Gravity.CENTER_VERTICAL);
+        clockRow.addView(clockLine, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, fontScale)), 1));
+        if (BuildConfig.LOCAL_PUZZLE_SHARING) {
+            ImageButton share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
+            share.setOnClickListener(v -> saveSession.dispatch(owner -> {
+                if (owner.game != null && !owner.checkDate())
+                    PuzzleSharing.send(owner, "Daily Word " + owner.date, WordShare.link(owner.game, owner.date));
+            }));
+            clockRow.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
+        root.addView(clockRow);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         body.setGravity(Gravity.TOP);
@@ -285,8 +322,8 @@ public final class DailyWordActivity extends Activity {
         controls.addView(new DailyWordKeyboard(this, letters, erase, enter, keyHeight),
                 new LinearLayout.LayoutParams(-1, -2));
         if (wide) {
-            root.removeView(clockLine);
-            controls.addView(clockLine, 0);
+            root.removeView(clockRow);
+            controls.addView(clockRow, 0);
         }
         status.setVisibility(View.INVISIBLE);
         status.setSingleLine(true); status.setMinHeight(dp(24 * Math.max(1, fontScale)));
@@ -405,6 +442,7 @@ public final class DailyWordActivity extends Activity {
         super.onResume();
         resumed = true; checkDate(); syncTime();
         handler.removeCallbacks(ticker); handler.post(ticker);
+        if (shared) return;
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_DATE_CHANGED);
         filter.addAction(Intent.ACTION_TIME_CHANGED);
@@ -530,10 +568,15 @@ public final class DailyWordActivity extends Activity {
     }
 
     private ImageButton home() {
-        ImageButton home = iconButton(getString(R.string.back_to_puzzles), R.drawable.ic_back);
+        ImageButton home = iconButton(getString(shared ? R.string.close_shared_sudoku : R.string.back_to_puzzles), R.drawable.ic_back);
         home.setOnClickListener(v -> finish());
         home.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
         return home;
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        PuzzleSharing.warm(this, intent);
     }
 
     private ImageButton iconButton(String name, int icon) {

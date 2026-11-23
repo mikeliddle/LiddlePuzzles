@@ -13,7 +13,7 @@ public final class Numberlink implements UndoablePuzzle {
     public static final GridEdges GRID = new GridEdges(N);
     public final GridEdges grid;
     public final int[] endpoints, edges;
-    private Numberlink(int[] endpoints, int[] edges) {
+    Numberlink(int[] endpoints, int[] edges) {
         this.endpoints = endpoints.clone(); this.edges = edges.clone();
         grid = endpoints.length == 16 ? GRID : new GridEdges(6);
     }

@@ -9,7 +9,7 @@ import java.util.Random;
 public final class Futoshiki implements UndoablePuzzle {
     public static final int N = 4;
     public final int[] clues, values, horizontal, vertical;
-    private Futoshiki(int[] clues, int[] values, int[] horizontal, int[] vertical) {
+    Futoshiki(int[] clues, int[] values, int[] horizontal, int[] vertical) {
         this.clues = clues.clone(); this.values = values.clone();
         this.horizontal = horizontal.clone(); this.vertical = vertical.clone();
     }

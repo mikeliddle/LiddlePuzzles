@@ -6,6 +6,9 @@ tasks.register('compileEngineTests', JavaCompile) {
     source = files(
         'app/src/main/java/com/quietgrid/sudoku/Sudoku.java',
         'app/src/main/java/com/quietgrid/sudoku/Game.java',
+        'app/src/main/java/com/quietgrid/sudoku/SudokuShare.java',
+        'app/src/main/java/com/quietgrid/sudoku/LocalShareLink.java',
+        'app/src/main/java/com/quietgrid/sudoku/WordShare.java',
         'app/src/main/java/com/quietgrid/sudoku/DailyWord.java',
         'app/src/main/java/com/quietgrid/sudoku/ActivePlayTimer.java',
         'app/src/main/java/com/quietgrid/sudoku/DurableFile.java',
@@ -14,6 +17,7 @@ tasks.register('compileEngineTests', JavaCompile) {
         'app/src/main/java/com/quietgrid/sudoku/SaveSession.java',
         'app/src/test/java/com/quietgrid/sudoku/SaveTests.java',
         'app/src/test/java/com/quietgrid/sudoku/EngineTests.java',
+        'app/src/test/java/com/quietgrid/sudoku/SharingTests.java',
         'app/src/test/java/com/quietgrid/sudoku/GeneratedPuzzleSamples.java',
         'app/src/test/java/com/quietgrid/sudoku/DifficultyTests.java',
         'app/src/test/java/com/quietgrid/sudoku/DailyWordTests.java',
@@ -39,6 +43,12 @@ tasks.register('engineTest', JavaExec) {
     dependsOn 'compileEngineTests'
     classpath = files(layout.buildDirectory.dir('engine-tests'))
     mainClass = 'com.quietgrid.sudoku.EngineTests'
+}
+
+tasks.register('sharingTest', JavaExec) {
+    dependsOn 'compileEngineTests'
+    classpath = files(layout.buildDirectory.dir('engine-tests'))
+    mainClass = 'com.quietgrid.sudoku.SharingTests'
 }
 
 tasks.register('classificationBatch', JavaExec) {

@@ -24,6 +24,7 @@ public final class EngineTests {
         persistence();
         importedSaveCompatibility();
         committedCopyIsolation();
+        SharingTests.run();
         SaveTests.run();
         activePlayTime();
         DifficultyTests.run();

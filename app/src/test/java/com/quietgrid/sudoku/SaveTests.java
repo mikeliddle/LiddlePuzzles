@@ -145,6 +145,7 @@ final class SaveTests {
                     .inheritIO().start();
             require(child.waitFor() == 0, "Oversized replacement and restoration must fit a 32 MiB heap");
             responsibleLimit(directory);
+            sharedResponsibleLimit(directory);
             System.out.println("PASS: save final-commit rollback, recovery and ordered checkpoint assertions");
         } finally {
             for (File child : directory.listFiles()) Files.delete(child.toPath());
@@ -152,6 +153,45 @@ final class SaveTests {
         }
     }
     private static void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
+
+    private static void sharedResponsibleLimit(File directory) throws Exception {
+        var today = java.time.LocalDate.of(2026, 11, 23);
+        File normal = new File(directory, "word.bin");
+        File shared = new File(directory, "shared-word-example.bin");
+        File other = new File(directory, "shared-word-other.bin");
+        DurableFile.Operations ops = new DurableFile.FileOperations() {
+            @Override public void syncDirectory(File target) {}
+        };
+        DurableFile regular = new DurableFile(normal, ops), replay = new DurableFile(shared, ops);
+        byte[] open = {1}, terminal = {2};
+        PuzzleSave quota = PuzzleSave.forFile(normal);
+        quota.read(regular, 1, directory, "shared-word-", null);
+        quota.queue().writeBlocking(() -> {
+            quota.commit(regular, open, PuzzleSave.Edit.DAILY_FINISH, true, today);
+            quota.commitShared(shared, replay, open, PuzzleSave.Edit.REPLACE, true, today);
+        });
+        byte[] untouched = Files.readAllBytes(normal.toPath());
+        DurableFile failing = new DurableFile(shared, new DurableFile.FileOperations() {
+            @Override public void syncDirectory(File target) {}
+            @Override public void write(File target, byte[] bytes) throws IOException { throw new IOException("Disk write failed"); }
+        });
+        try {
+            quota.queue().writeBlocking(() -> quota.commitShared(shared, failing, terminal, PuzzleSave.Edit.FINISH, true, today));
+            throw new AssertionError("A failed shared finish must be observable");
+        } catch (IOException expected) {
+            require(quota.finishedToday(today) == 1, "A failed shared finish must not consume a slot");
+        }
+        quota.queue().writeBlocking(() -> {
+            quota.commitShared(shared, replay, terminal, PuzzleSave.Edit.FINISH, true, today);
+            quota.commitShared(other, new DurableFile(other, ops), terminal, PuzzleSave.Edit.FINISH, true, today);
+            quota.commitShared(shared, replay, terminal, PuzzleSave.Edit.FINISH, true, today.plusDays(1));
+        });
+        require(Arrays.equals(terminal, quota.read(replay, 1, directory, "shared-word-", shared)),
+                "A terminal shared save can be reopened through the destination queue");
+        require(quota.finishedToday(today) == 3 && quota.finishedToday(today.plusDays(1)) == 0,
+                "Regular and pinned Word finishes share the actual play day's quota and count only once");
+        require(Arrays.equals(untouched, Files.readAllBytes(normal.toPath())), "Shared saves do not rewrite normal progress");
+    }
 
     private static void responsibleLimit(File directory) throws Exception {
         var today = java.time.LocalDate.of(2026, 11, 23);

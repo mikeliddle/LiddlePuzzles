@@ -40,6 +40,10 @@ public final class Slitherlink implements UndoablePuzzle {
             default: throw new IllegalArgumentException("Choose a 4x4, 6x6 or 8x8 loop.");
         }
     }
+    static Slitherlink starting(int n, int[] clues) {
+        Layout layout = layout(n);
+        return new Slitherlink(layout, clues, new int[layout.grid.a.length]);
+    }
     @Override public Mode mode() { return Mode.SLITHERLINK; }
     @Override public int size() { return layout.n; }
     @Override public int[] entries() { return edges; }

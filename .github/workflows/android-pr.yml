@@ -107,12 +107,12 @@ jobs:
           for repetition in 1 2; do
             adb shell pm clear "$TARGET_PACKAGE" | tr -d '\r' | grep -Fx Success
             timeout 180 adb shell am instrument -w -r \
-              -e class com.quietgrid.sudoku.CiSmokeTests,com.quietgrid.sudoku.PersistenceDeviceTests \
+              -e class com.quietgrid.sudoku.CiSmokeTests,com.quietgrid.sudoku.PersistenceDeviceTests,com.quietgrid.sudoku.SharingDeviceTests,com.quietgrid.sudoku.MultiSharingDeviceTests \
               "$TARGET_PACKAGE.test/android.test.InstrumentationTestRunner" | tee "smoke-$repetition.txt"
             if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED|shortMsg=|Process crashed' "smoke-$repetition.txt"; then
               exit 1
             fi
-            grep -Eq '^OK \(8 tests\)' "smoke-$repetition.txt"
+            grep -Eq '^OK \(25 tests\)' "smoke-$repetition.txt"
           done
       - name: Stop the emulator
         if: always()

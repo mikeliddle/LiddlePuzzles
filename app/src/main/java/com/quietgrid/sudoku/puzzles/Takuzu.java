@@ -8,7 +8,7 @@ import java.util.Random;
 
 public final class Takuzu implements UndoablePuzzle {
     public final int[] clues, values;
-    private Takuzu(int[] clues, int[] values) { this.clues = clues.clone(); this.values = values.clone(); }
+    Takuzu(int[] clues, int[] values) { this.clues = clues.clone(); this.values = values.clone(); }
     @Override public Mode mode() { return Mode.TAKUZU; }
     @Override public int size() { return dimension(values.length); }
     @Override public int[] entries() { return values; }

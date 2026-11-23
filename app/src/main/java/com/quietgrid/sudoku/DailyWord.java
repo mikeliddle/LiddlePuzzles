@@ -27,6 +27,7 @@ public final class DailyWord {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private final Set<String> allowed;
     private final List<String> answers;
+    private final byte[] scheduleFingerprint;
     private final Map<LocalDate, Day> days = new LinkedHashMap<>();
 
     public static final class Day {
@@ -57,11 +58,18 @@ public final class DailyWord {
         if (allowed.isEmpty() || answers.isEmpty() || !allowed.containsAll(answers)) {
             throw new IOException("Daily Word dictionary or answer schedule is incomplete.");
         }
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update((SCHEDULE + ":" + EPOCH + "\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            for (String answer : answers) digest.update((answer + "\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+            scheduleFingerprint = digest.digest();
+        } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException("SHA-256 is unavailable", ex); }
     }
 
     public DailyWord(DailyWord source) {
         allowed = source.allowed;
         answers = source.answers;
+        scheduleFingerprint = source.scheduleFingerprint;
         for (Day day : source.days.values()) days.put(day.date, new Day(day));
     }
 
@@ -86,6 +94,12 @@ public final class DailyWord {
     }
 
     public int scheduleLength() { return answers.size(); }
+    byte[] scheduleFingerprint() { return scheduleFingerprint.clone(); }
+
+    void readShared(DataInputStream in, LocalDate date) throws IOException {
+        read(in);
+        if (days.size() != 1 || !days.containsKey(date)) throw new IOException("Shared Word progress belongs to another date.");
+    }
     public String answer(LocalDate date) {
         return answers.get((int) Math.floorMod(date.toEpochDay() - EPOCH.toEpochDay(), answers.size()));
     }

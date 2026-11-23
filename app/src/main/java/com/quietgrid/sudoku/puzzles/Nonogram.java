@@ -12,7 +12,7 @@ public final class Nonogram implements UndoablePuzzle {
     public static final int N = 5;
     public final int[][] rows, columns;
     public final int[] values;
-    private Nonogram(int[][] rows, int[][] columns, int[] values) {
+    Nonogram(int[][] rows, int[][] columns, int[] values) {
         this.rows = copy(rows); this.columns = copy(columns); this.values = values.clone();
     }
     private static int[][] copy(int[][] a) { return Arrays.stream(a).map(int[]::clone).toArray(int[][]::new); }

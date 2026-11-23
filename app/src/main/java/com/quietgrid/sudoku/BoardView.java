@@ -19,7 +19,7 @@ public final class BoardView extends View {
     private final MainActivity.Palette palette;
     private Game game;
     private boolean highlightHouses;
-    private final boolean[] armedHouseCells = new boolean[81];
+    private final boolean[] armedBlockedCells = new boolean[81];
     private float left, top, cellSize;
     private Runnable selectionChanged, entryChanged;
     private int accessibilityFocus = -1, hovered = -1;
@@ -195,17 +195,17 @@ public final class BoardView extends View {
         int selected = game == null ? -1 : game.selected;
         int selectedValue = game == null ? 0 : game.armedDigit != 0
                 ? game.armedDigit : selected < 0 ? 0 : game.values[selected];
-        if (highlightHouses && game != null) game.markArmedDigitHouses(armedHouseCells);
+        if (highlightHouses && game != null) game.markArmedDigitBlockedCells(armedBlockedCells);
         for (int i = 0; i < 81; i++) {
             float x = left + i % 9 * cellSize, y = top + i / 9 * cellSize;
             if (game == null) continue;
             int value = game.values[i];
             boolean wrong = game.showMistakes && value != 0 && value != game.solution[i];
-            boolean armedHouse = highlightHouses && armedHouseCells[i] && !completedCells[i]
+            boolean armedBlocked = highlightHouses && armedBlockedCells[i] && !completedCells[i]
                     && i != animatedCell && i != rejectedCell;
             int fill = i == selected ? palette.tint : wrong ? palette.errorFill
                     : selectedValue != 0 && value == selectedValue ? palette.tint
-                    : armedHouse || (selected >= 0 && Sudoku.PEERS[selected][i]) ? palette.peer : palette.surface;
+                    : armedBlocked || (selected >= 0 && Sudoku.PEERS[selected][i]) ? palette.peer : palette.surface;
             paint.setColor(fill);
             canvas.drawRect(x, y, x + cellSize, y + cellSize, paint);
             if (completedCells[i]) {

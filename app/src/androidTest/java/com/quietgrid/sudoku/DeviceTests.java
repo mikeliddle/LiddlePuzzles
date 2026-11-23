@@ -1182,9 +1182,16 @@ public final class DeviceTests extends InstrumentationTestCase {
         int[] solution = new int[81];
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++)
             solution[r * 9 + c] = (r * 3 + r / 3 + c) % 9 + 1;
-        Game fixture = new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
+        int[] clues = new int[81];
+        clues[57] = solution[57];
+        Game fixture = new Game(new Sudoku.Puzzle(clues, solution, Sudoku.Difficulty.FOCUSED, null));
         fixture.values[0] = 4;
         fixture.values[40] = 4;
+        fixture.setNoteMode(true);
+        fixture.selected = 80;
+        assertTrue(fixture.enter(4));
+        fixture.setNoteMode(false);
+        fixture.values[69] = solution[69];
         fixture.showMistakes = true;
         fixture.toggleDigit(4);
         for (boolean dark : new boolean[]{false, true}) {
@@ -1195,7 +1202,10 @@ public final class DeviceTests extends InstrumentationTestCase {
                 assertEquals(palette.surface, boardFill(off, 4));
                 assertEquals("Overlapping row and column share a single peer fill", palette.peer, boardFill(on, 4));
                 assertEquals("Box-only peer", palette.peer, boardFill(on, 10));
-                assertEquals("Unrelated cell", palette.surface, boardFill(on, 80));
+                assertEquals("Given outside the four's houses is shaded", palette.peer, boardFill(on, 57));
+                assertEquals("Player entry outside the four's houses is shaded", palette.peer, boardFill(on, 69));
+                assertEquals("Occupied square is unshaded with the setting off", palette.surface, boardFill(off, 69));
+                assertEquals("Eligible square with only pencil notes is unshaded", palette.surface, boardFill(on, 80));
                 assertEquals("Solution-mismatch fill remains distinct", palette.errorFill, boardFill(on, 0));
                 assertEquals(boardFill(off, 40), boardFill(on, 40));
                 fixture.showMistakes = false;
@@ -1204,7 +1214,10 @@ public final class DeviceTests extends InstrumentationTestCase {
                 finally { noMistakes.recycle(); fixture.showMistakes = true; }
                 fixture.setNoteMode(true);
                 Bitmap notes = renderBoard(fixture, palette, true);
-                try { assertEquals("Switching to Notes removes the peer fill", palette.surface, boardFill(notes, 4)); }
+                try {
+                    assertEquals("Switching to Notes removes the peer fill", palette.surface, boardFill(notes, 4));
+                    assertEquals("Notes mode does not shade occupied squares", palette.surface, boardFill(notes, 57));
+                }
                 finally { notes.recycle(); fixture.setNoteMode(false); }
                 fixture.toggleDigit(4);
                 fixture.selectCell(80);
@@ -1212,6 +1225,7 @@ public final class DeviceTests extends InstrumentationTestCase {
                 try {
                     assertEquals("Cell-first selection retains its usual fill", palette.tint, boardFill(selected, 80));
                     assertEquals("Unarmed selection does not shade digit houses", palette.surface, boardFill(selected, 4));
+                    assertEquals("Unarmed selection does not shade unrelated occupied squares", palette.surface, boardFill(selected, 57));
                 } finally { selected.recycle(); fixture.toggleDigit(4); }
             } finally { off.recycle(); on.recycle(); }
         }

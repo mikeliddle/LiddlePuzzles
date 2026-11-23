@@ -20,7 +20,7 @@ public final class EngineTests {
         heldNotes();
         duplicatePrevention();
         houseCompletion();
-        armedDigitHouses();
+        armedDigitBlockedCells();
         persistence();
         importedSaveCompatibility();
         committedCopyIsolation();
@@ -111,44 +111,51 @@ public final class EngineTests {
         return new Game(new Sudoku.Puzzle(new int[81], solution, Sudoku.Difficulty.FOCUSED, null));
     }
 
-    private static void armedDigitHouses() {
+    private static void armedDigitBlockedCells() {
         int[] clues = new int[81];
         clues[0] = 4;
+        clues[60] = 2;
         Game g = new Game(new Sudoku.Puzzle(clues, blank().solution, Sudoku.Difficulty.FOCUSED, null));
+        g.selected = 70;
+        check(g.enter(3), "Fill a square outside the four's houses");
         g.notes[80] = Sudoku.bit(4);
         g.toggleDigit(4);
         // A legal player entry counts, even when it differs from the solution.
         check(g.selectCell(40), "Place a second visible four");
         boolean[] cells = new boolean[81];
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         for (int i = 0; i < cells.length; i++) {
             int row = i / 9, column = i % 9;
             boolean expected = row == 0 || column == 0 || (row < 3 && column < 3)
-                    || row == 4 || column == 4 || (row / 3 == 1 && column / 3 == 1);
-            check(cells[i] == expected, "Union of visible fours at cell " + i);
+                    || row == 4 || column == 4 || (row / 3 == 1 && column / 3 == 1)
+                    || i == 60 || i == 70;
+            check(cells[i] == expected, "Occupied squares and houses containing a visible four: cell " + i);
         }
         g.setNoteMode(true);
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         check(Arrays.equals(cells, new boolean[81]), "Notes mode has no house shading");
         g.setNoteMode(false);
         check(g.undo(), "Undo number placement");
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         check(cells[0] && cells[10] && !cells[40], "Undo keeps only the given's houses");
         check(g.selectCell(40), "Replace the player four");
         g.toggleDigit(4);
         g.selectCell(40);
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         check(Arrays.equals(cells, new boolean[81]), "Cell-first selection has no armed houses");
         check(g.clear(), "Erase the player four");
         g.toggleDigit(4);
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         check(cells[0] && !cells[40], "Erased entries no longer shade houses");
         check(g.undo(), "Undo erase");
-        g.markArmedDigitHouses(cells);
+        g.markArmedDigitBlockedCells(cells);
         check(cells[40], "Undo erase restores house shading");
         g.toggleDigit(5);
-        g.markArmedDigitHouses(cells);
-        check(Arrays.equals(cells, new boolean[81]), "Switching digits ignores the hidden solution");
+        g.markArmedDigitBlockedCells(cells);
+        for (int i = 0; i < cells.length; i++) {
+            check(cells[i] == (i == 0 || i == 40 || i == 60 || i == 70),
+                    "With no visible five, only occupied squares are shaded: cell " + i);
+        }
     }
 
     private static void houseCompletion() {

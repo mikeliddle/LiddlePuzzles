@@ -934,7 +934,7 @@ public final class MainActivity extends Activity {
             Switch houses = toggle("Highlight houses", preferences.getBoolean(HIGHLIGHT_HOUSES, false),
                     (view, enabled) -> persistPreference(HIGHLIGHT_HOUSES, enabled,
                             () -> handler.post(this::refreshHouseHighlighting)));
-            houses.setTooltipText("Shade rows, columns, and boxes already containing the digit you're entering.");
+            houses.setTooltipText("Shade filled squares and any row, column, or box that already contains the armed digit.");
             addControl(content, houses, 56, 8);
         } else if (settingsGame.equals("DAILY_WORD")) {
             addCopy(content, "5 letters", 22, palette.ink, 8);

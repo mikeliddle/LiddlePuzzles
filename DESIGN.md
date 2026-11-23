@@ -283,9 +283,9 @@ returns to global Settings; a game/menu -> its settings returns directly to that
 same game/menu. Toolbar and Android Back agree, including after recreation.
 Opening settings does not disarm the Sudoku digit or discard board selection.
 Sudoku's **Highlight houses** is off by default. In digit-first number entry,
-use one peer-tone fill for the union of rows, columns, and boxes containing
-that visible digit. Notes and the solution never contribute, and existing
-digit, selection, and error feedback take precedence.
+use one peer-tone fill for occupied squares and for rows, columns, and boxes
+containing that visible digit. Notes and the solution never contribute, and
+existing digit, selection, and error feedback take precedence.
 
 Mines reveal feedback interpolates only newly revealed squares' opaque fill from
 covered to revealed, with a short bounded flood stagger; never fade the whole

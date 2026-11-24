@@ -7,7 +7,9 @@
     <string name="settings_app_version">App version: %1$s</string>
     <string name="settings_open_releases">Latest release</string>
     <string name="settings_releases_unavailable">Could not open the latest release</string>
-    <string name="settings_releases_no_browser">Install or enable a web browser and try again.</string>
+    <string name="settings_privacy_policy">Privacy policy</string>
+    <string name="settings_privacy_unavailable">Could not open the privacy policy</string>
+    <string name="settings_no_browser">Install or enable a web browser and try again.</string>
     <string name="ai_disclosure">This app, including its code and artwork, was generated with AI under human direction.</string>
     <string name="shared_sudoku">Shared Sudoku</string>
     <string name="close_shared_sudoku">Close shared puzzle</string>

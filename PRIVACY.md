@@ -8,8 +8,9 @@ automatically transferred or read for migration.
 
 Liddle Puzzles is an offline app. It does not collect or transmit personal data,
 usage data, device identifiers, or crash reports to the developer or any
-third party. It has no accounts, advertising, analytics, network permission,
-or internet-connected features.
+third party. It has no accounts, advertising, analytics, or network permission.
+The links in Settings > About open in an external browser. The browser and
+the site handle those requests under their own privacy policies.
 
 The app stores your current puzzle, entries, notes, move history, active solve
 time, personal-best times, and appearance/gameplay preferences locally in

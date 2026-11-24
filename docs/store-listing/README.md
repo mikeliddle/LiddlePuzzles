@@ -1,6 +1,7 @@
 # Google Play listing assets
 
-[English (US) listing copy](listing.en-US.md) · [Feature graphic](feature-graphic.png)
+[English (US) listing copy](listing.en-US.md) · [Play app icon](play-icon.png) ·
+[Feature graphic](feature-graphic.png) · [Play Console checklist](play-console.md)
 
 Upload these phone screenshots in the order shown. The first three lead with
 in-progress play; the final image shows the eight games together.
@@ -15,6 +16,13 @@ in-progress play; the final image shows the eight games together.
 
 Feature graphic alt text: “A little time to puzzle” above three boards in
 progress: Daily Word, Sudoku, and Nonograms.
+
+Upload `play-icon.png` as the **App icon**, not as a screenshot or feature
+graphic. It renders the current [launcher foreground](../../app/src/main/res/drawable/ic_liddle_puzzles.xml)
+over the [launcher background](../../app/src/main/res/values/colors.xml).
+The export uses the center 72 x 72 units of the 108-unit adaptive icon viewport
+to match its launcher framing, leaving Play to apply its own mask and shadow.
+The launcher resources are unchanged.
 
 ## Capture provenance
 
@@ -37,9 +45,12 @@ progress: Daily Word, Sudoku, and Nonograms.
 
 The five phone files are 1080 x 1920 (9:16) RGB PNGs without alpha, each
 under 8 MB. The feature graphic is a 1024 x 500 RGB PNG without alpha.
+The Play app icon is a full-square 512 x 512 sRGB 32-bit PNG under 1024 KB
+with no baked-in mask or shadow, per the
+[Play icon specs](https://developer.android.com/distribute/google-play/resources/icon-design-specifications).
 The [copy limits](https://support.google.com/googleplay/android-developer/answer/9859152)
 are 30 characters for the title, 80 for the short description, and 4,000
 for the full description. See Google's
 [preview asset requirements](https://support.google.com/googleplay/android-developer/answer/9866151)
-for upload guidance. The separate Play app icon, tablet assets, and preview
-video are not included. This package has not been submitted to Google Play.
+for upload guidance. Tablet assets and a preview video are not included.
+This package has not been submitted to Google Play.

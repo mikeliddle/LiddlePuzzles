@@ -514,8 +514,10 @@ switch rows with unrestricted accessible names/tooltips. Other mode entries
 reuse the exact submenu choices and preference keys for future games only,
 without replacing saves. Daily Word displays its fixed five-letter/six-guess
 configuration; Futoshiki and Numberlink show their existing single size without
-invented toggles. Settings ends with the disclosure, without collection transfer
-controls. No subtitles or decorative explanations.
+invented toggles. Global Settings ends with About: the installed version, links
+to the latest release and privacy policy, and the disclosure. The links open
+outside the app and explain how to recover if no browser is available. No
+collection transfer controls, subtitles, or decorative explanations.
 
 This is an implementation review, not TalkBack or Switch Access certification.
 Native touch, key/focus/node actions and geometry checks complement source

@@ -2036,14 +2036,30 @@ public final class DeviceTests extends InstrumentationTestCase {
         View about = findText(activity.getString(R.string.settings_about));
         assertNotNull(about);
         assertTrue("About is a screen reader heading", about.isAccessibilityHeading());
-        String releaseLabel = activity.getString(R.string.settings_open_releases);
-        View releases = findText(releaseLabel);
-        assertNotNull(releases);
+        assertAboutBrowserLink(R.string.settings_open_releases,
+                "https://github.com/mikeliddle/LiddlePuzzles/releases/latest", R.string.settings_releases_unavailable);
+        closeGlobalSettings();
+        assertNotNull(findText("Difficulty"));
+    }
+
+    public void testGlobalAboutOpensPrivacyPolicy() throws Exception {
+        launch();
+        openGlobalSettings();
+        assertAboutBrowserLink(R.string.settings_privacy_policy,
+                "https://mllab.fyi/liddle-puzzles/privacy", R.string.settings_privacy_unavailable);
+        closeGlobalSettings();
+        assertNotNull(findText("Difficulty"));
+    }
+
+    private void assertAboutBrowserLink(int labelId, String url, int unavailableTitle) {
+        String label = activity.getString(labelId);
+        View link = findText(label);
+        assertNotNull(link);
         getInstrumentation().runOnMainSync(() ->
-                releases.requestRectangleOnScreen(new Rect(0, 0, releases.getWidth(), releases.getHeight()), true));
+                link.requestRectangleOnScreen(new Rect(0, 0, link.getWidth(), link.getHeight()), true));
         getInstrumentation().waitForIdleSync();
-        assertTrue(releases.getGlobalVisibleRect(new Rect()));
-        assertTrue(releases.getHeight() >= 48 * releases.getResources().getDisplayMetrics().density - 0.5f);
+        assertTrue(link.getGlobalVisibleRect(new Rect()));
+        assertTrue(link.getHeight() >= 48 * link.getResources().getDisplayMetrics().density - 0.5f);
 
         Intent[] outgoing = new Intent[1];
         boolean[] noBrowser = {false};
@@ -2057,26 +2073,26 @@ public final class DeviceTests extends InstrumentationTestCase {
         };
         getInstrumentation().addMonitor(monitor);
         try {
-            clickText(releaseLabel);
+            clickText(label);
             assertNotNull(outgoing[0]);
             assertTrue(outgoing[0].hasCategory(Intent.CATEGORY_BROWSABLE));
-            assertEquals("https://github.com/mikeliddle/LiddlePuzzles/releases/latest", outgoing[0].getDataString());
+            assertEquals(url, outgoing[0].getDataString());
             assertNull(outgoing[0].getComponent());
 
             noBrowser[0] = true;
-            clickText(releaseLabel);
-            String error = activity.getString(R.string.settings_releases_no_browser);
+            clickText(label);
+            String error = activity.getString(R.string.settings_no_browser);
             AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
             assertNotNull(root);
+            assertFalse("Missing browser identifies the link", root.findAccessibilityNodeInfosByText(
+                    activity.getString(unavailableTitle)).isEmpty());
             assertFalse("Missing browser shows recovery guidance", root.findAccessibilityNodeInfosByText(error).isEmpty());
             getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
             getInstrumentation().waitForIdleSync();
-            assertNotNull(findText(releaseLabel));
+            assertNotNull(findText(label));
         } finally {
             getInstrumentation().removeMonitor(monitor);
         }
-        closeGlobalSettings();
-        assertNotNull(findText("Difficulty"));
     }
 
     private void openGlobalSettings() {

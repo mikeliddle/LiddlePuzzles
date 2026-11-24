@@ -963,19 +963,23 @@ public final class MainActivity extends Activity {
         content.addView(about, new LinearLayout.LayoutParams(-1, -2));
         addCopy(content, getString(R.string.settings_app_version, BuildConfig.VERSION_NAME), 16, palette.ink, 8);
         Button releases = button(getString(R.string.settings_open_releases), false);
-        releases.setOnClickListener(v -> openLatestRelease());
+        releases.setOnClickListener(v -> openInBrowser("https://github.com/mikeliddle/LiddlePuzzles/releases/latest",
+                R.string.settings_releases_unavailable));
         addControl(content, releases, 56, 8);
+        Button privacy = button(getString(R.string.settings_privacy_policy), false);
+        privacy.setOnClickListener(v -> openInBrowser("https://mllab.fyi/liddle-puzzles/privacy",
+                R.string.settings_privacy_unavailable));
+        addControl(content, privacy, 56, 8);
         addCopy(content, getString(R.string.ai_disclosure), 14, palette.muted, 0);
     }
 
-    private void openLatestRelease() {
-        Intent releases = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mikeliddle/LiddlePuzzles/releases/latest"))
-                .addCategory(Intent.CATEGORY_BROWSABLE);
+    private void openInBrowser(String url, int unavailableTitle) {
+        Intent link = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE);
         try {
-            startActivity(releases);
+            startActivity(link);
         } catch (ActivityNotFoundException ex) {
-            new AlertDialog.Builder(this).setTitle(R.string.settings_releases_unavailable)
-                    .setMessage(R.string.settings_releases_no_browser)
+            new AlertDialog.Builder(this).setTitle(unavailableTitle)
+                    .setMessage(R.string.settings_no_browser)
                     .setPositiveButton(android.R.string.ok, null).show();
         }
     }

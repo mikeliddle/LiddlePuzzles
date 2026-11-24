@@ -23,9 +23,16 @@ APIs images. It builds and inspects both variants, but installs only
 Instrumentation covers generated-game input/history, persistence and sharing
 twice from reset app state. The [Nov 20 baseline run](https://github.com/mikeliddle/LiddlePuzzles/actions/runs/44709330573)
 failed on Maven Central HTTP 429 before instrumentation; it provided no UX
-test result. The dependency cache reduces repeat downloads and does not change
-strict dependency verification. A compile or APK manifest check does not
-count as a device or hosted smoke pass.
+test result. A compile or APK manifest check does not count as a device or
+hosted smoke pass.
+
+Smoke tests execute PR code on disposable hosted runners using `pull_request`,
+not `pull_request_target`. They need only read access for checkout and do not
+persist that credential, receive signing secrets, or upload artifacts for a
+privileged workflow. Gradle uses an uncached per-job home with strict
+dependency verification. Keep actions pinned and within the repository
+allowlist; do not broaden it just to add optional tooling. Treat PR code as
+untrusted even with these controls: runner network access is still available.
 
 ## Sharing routes and format
 

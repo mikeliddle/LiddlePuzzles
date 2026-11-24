@@ -6,8 +6,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: android-pr-${{ github.event.pull_request.number || github.ref }}
@@ -20,6 +19,8 @@ defaults:
 jobs:
   readme:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -35,6 +36,8 @@ jobs:
     name: Android API ${{ matrix.api }} smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -57,18 +60,12 @@ jobs:
         with:
           distribution: microsoft
           java-version: '17'
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: |
-            ~/.gradle/caches/modules-2
-            ~/.gradle/wrapper/dists
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/verification-metadata.xml') }}
       - name: Check wrapper and prepare hosted Android tools
         run: |
           echo '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
           test ! -e "$SUDOKU_SIGNING_DIR"
           # SDK packages come from Google's SDK repository. Revisions below were
-          # reviewed in repository2-1.xml and google_apis/sys-img2-1.xml.
+          # reviewed in repository2-3.xml and google_apis/sys-img2-1.xml.
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --channel=0 "cmdline-tools;23.0" < <(yes)
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/23.0/bin/sdkmanager"
@@ -93,6 +90,8 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
       - name: Compile validation app and instrumentation
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/smoke-gradle
         run: |
           bash ./gradlew --no-daemon --console=plain --dependency-verification strict \
             -PunsignedRelease=true engineTest :app:assembleValidation :app:assembleValidationAndroidTest :app:lintValidation :app:assembleRelease
@@ -127,7 +126,7 @@ jobs:
       - name: Boot an isolated headless emulator
         run: |
           test -c /dev/kvm
-          sudo chmod 0666 /dev/kvm
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd \
             --force --name ci-smoke --package "$SYSTEM_IMAGE" --device pixel_2 <<< no
           emulator -avd ci-smoke -port 5554 -no-window -no-audio -no-boot-anim \

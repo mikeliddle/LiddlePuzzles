@@ -240,7 +240,9 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
 
     public void testInvalidLinkHasNoGameAndDoesNotTouchNormalSave() throws Exception {
         byte[] normal = Files.readAllBytes(file("current-game.bin").toPath());
-        startLink(link(false).replace("/v1/", "/v9/"));
+        assertNull("Unsupported versions are not advertised", getInstrumentation().getTargetContext()
+                .getPackageManager().resolveActivity(viewIntent(link(false).replace("/v1/", "/v9/")), 0));
+        startLink(link(false) + "?invalid");
         assertNull(game());
         assertFalse(sharedFile(false).exists());
         assertTrue(Arrays.equals(normal, Files.readAllBytes(file("current-game.bin").toPath())));

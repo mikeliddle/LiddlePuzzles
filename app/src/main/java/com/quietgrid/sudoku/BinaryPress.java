@@ -30,12 +30,11 @@ final class BinaryPress {
     static void attach(Button button, String secondaryName, Runnable secondary) {
         final class Press implements View.OnTouchListener, View.OnAttachStateChangeListener,
                 android.view.ViewTreeObserver.OnWindowFocusChangeListener {
-            private boolean canceled, held;
+            private boolean canceled = true, held;
             private float x, y;
             private final Runnable hold = () -> {
                 if (!canceled && !held && button.isEnabled() && button.isPressed()
                         && button.isShown() && button.isAttachedToWindow() && button.hasWindowFocus()) {
-                    button.cancelLongPress();
                     button.performLongClick();
                     button.setPressed(false);
                 }
@@ -49,7 +48,6 @@ final class BinaryPress {
 
             private void cancelHold() {
                 button.removeCallbacks(hold);
-                button.cancelLongPress();
             }
 
             private void track(float nextX, float nextY) {
@@ -66,6 +64,8 @@ final class BinaryPress {
                 if (action == MotionEvent.ACTION_DOWN) {
                     button.removeCallbacks(hold); canceled = held = false;
                     x = event.getX(); y = event.getY();
+                    button.drawableHotspotChanged(x, y);
+                    button.setPressed(true);
                     button.postDelayed(hold, timeout(button.getContext()));
                 }
                 if (event.getPointerCount() > 1 || action == MotionEvent.ACTION_CANCEL) cancel();
@@ -77,9 +77,11 @@ final class BinaryPress {
                 }
                 if (action == MotionEvent.ACTION_UP) {
                     button.removeCallbacks(hold);
-                    if (canceled || held) { button.cancelLongPress(); button.setPressed(false); return true; }
+                    boolean click = !canceled && !held && button.isShown() && button.hasWindowFocus();
+                    cancel();
+                    if (click) button.post(button::performClick);
                 }
-                return canceled || held;
+                return true;
             }
 
             @Override public void onWindowFocusChanged(boolean focused) { if (!focused) cancel(); }

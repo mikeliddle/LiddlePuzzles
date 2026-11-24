@@ -132,7 +132,7 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
         route(sent, PuzzleActivity.class);
         assertTrue(Arrays.equals(entries, ((UndoablePuzzle) field("game")).entries()));
         assertEquals(1, ((PuzzleProgress) field("progress")).undoCount());
-        getInstrumentation().runOnMainSync(() -> invoke("undo", new Class<?>[0]));
+        getInstrumentation().runOnMainSync(() -> invoke("restoreMove", new Class<?>[]{boolean.class}, false));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertTrue(Arrays.equals(((UndoablePuzzle) fixture).entries(), ((UndoablePuzzle) field("game")).entries()));
         assertTrue(Arrays.equals(normal, Files.readAllBytes(normalFile.toPath())));
@@ -314,8 +314,15 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
         if (activity == null) return;
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         File path = (File) callSaved();
-        getInstrumentation().runOnMainSync(() -> activity.finish());
-        getInstrumentation().waitForIdleSync();
+        Activity closing = activity;
+        getInstrumentation().runOnMainSync(closing::finish);
+        boolean[] destroyed = {false};
+        long deadline = android.os.SystemClock.uptimeMillis() + 5000;
+        do {
+            getInstrumentation().runOnMainSync(() -> destroyed[0] = closing.isDestroyed());
+            if (!destroyed[0]) android.os.SystemClock.sleep(25);
+        } while (!destroyed[0] && android.os.SystemClock.uptimeMillis() < deadline);
+        assertTrue("Closing activity must finish its lifecycle before checking the saved bytes", destroyed[0]);
         try { SaveQueue.forPath(path.getAbsolutePath()).flushBlocking(); }
         catch (IOException ex) { throw new AssertionError(ex); }
         activity = null;

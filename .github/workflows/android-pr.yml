@@ -93,8 +93,18 @@ jobs:
         env:
           GRADLE_USER_HOME: ${{ runner.temp }}/smoke-gradle
         run: |
-          bash ./gradlew --no-daemon --console=plain --dependency-verification strict \
-            -PunsignedRelease=true engineTest :app:assembleValidation :app:assembleValidationAndroidTest :app:lintValidation :app:assembleRelease
+          for attempt in 1 2; do
+            if bash ./gradlew --no-daemon --console=plain --dependency-verification strict \
+              -PunsignedRelease=true engineTest :app:assembleValidation :app:assembleValidationAndroidTest :app:lintValidation :app:assembleRelease \
+              2>&1 | tee "$RUNNER_TEMP/smoke-gradle.log"; then
+              break
+            fi
+            if [[ "$attempt" == 2 ]] || ! grep -Eq 'Could not GET .*https://repo\.maven\.apache\.org/.*status code 429' "$RUNNER_TEMP/smoke-gradle.log"; then
+              exit 1
+            fi
+            echo 'Maven Central rate limited dependency resolution; retrying once after 60 seconds.'
+            sleep 60
+          done
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           "$TOOLS/aapt2" dump badging app/build/outputs/apk/validation/app-validation.apk > validation-manifest.txt
           grep -Eq "^package: name='fyi\.mllab\.puzzle\.validation' " validation-manifest.txt
@@ -163,10 +173,14 @@ jobs:
           adb install -r app/build/outputs/apk/androidTest/validation/app-validation-androidTest.apk
           for repetition in 1 2; do
             adb shell pm clear "$TARGET_PACKAGE" | tr -d '\r' | grep -Fx Success
-            timeout 180 adb shell am instrument -w -r \
+            if ! timeout 180 adb shell am instrument -w -r \
               -e class com.quietgrid.sudoku.CiSmokeTests,com.quietgrid.sudoku.PersistenceDeviceTests,com.quietgrid.sudoku.SharingDeviceTests,com.quietgrid.sudoku.MultiSharingDeviceTests \
-              "$TARGET_PACKAGE.test/android.test.InstrumentationTestRunner" | tee "smoke-$repetition.txt"
+              "$TARGET_PACKAGE.test/android.test.InstrumentationTestRunner" | tee "smoke-$repetition.txt"; then
+              adb logcat -b crash -d -t 100 || true
+              exit 1
+            fi
             if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED|shortMsg=|Process crashed' "smoke-$repetition.txt"; then
+              adb logcat -b crash -d -t 100 || true
               exit 1
             fi
             grep -Eq '^OK \(26 tests\)' "smoke-$repetition.txt"

@@ -192,7 +192,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         // A direct new-game intent must not overwrite the finished board either.
         start(PuzzleActivity.class, new Intent(launchMines).putExtra(PuzzleActivity.NEW_SETTING, Mode.MINESWEEPER.defaultSetting()));
         assertTrue(((Puzzle) field(activity, "game")).lost());
-        runTestOnUiThread(() -> invoke(activity, "undo"));
+        runTestOnUiThread(() -> invoke(activity, "restoreMove", new Class<?>[]{boolean.class}, false));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertTrue(((Puzzle) field(activity, "game")).lost());
         assertEquals(10, minesSave.finishedToday(today));
@@ -506,7 +506,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
                 assertEquals(-1, ((Takuzu) field(activity, "game")).values[targets[0]]);
                 assertEquals(0, ((PuzzleProgress) field(activity, "progress")).undoCount());
                 invoke(activity, "cell", new Class<?>[]{int.class}, targets[1]);
-                invoke(activity, "undo");
+                invoke(activity, "restoreMove", new Class<?>[]{boolean.class}, false);
                 activity.recreate();
             });
             Activity recreated = getInstrumentation().waitForMonitorWithTimeout(monitor, 5000);

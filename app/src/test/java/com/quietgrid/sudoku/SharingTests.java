@@ -1,5 +1,6 @@
 package com.quietgrid.sudoku;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Base64;
 import com.quietgrid.sudoku.puzzles.*;
@@ -13,23 +14,8 @@ public final class SharingTests {
     static void run() {
         int[] clues = fixture();
         String link = SudokuShare.link(clues);
-        String production = LocalShareLink.toTransport(link, "liddlepuzzles");
-        check(production.equals("liddlepuzzles://" + link.substring(LocalShareLink.SCHEME.length())),
-                "Production v1 keeps the identical starting definition");
-        for (String scheme : new String[]{"liddlepuzzles", "liddlepuzzles-local"}) {
-            String full = LocalShareLink.toTransport(link, scheme);
-            check(LocalShareLink.fromTransport(full, scheme).equals(link), "Build routes decode the same definition");
-            check(LocalShareLink.manualTransport("  " + full + "  ", scheme).equals(full), "Full URL accepts surrounding whitespace");
-            check(LocalShareLink.manualTransport(full.substring(scheme.length() + 3), scheme).equals(full), "Missing scheme uses current build");
-            for (String invalid : new String[]{full + "?q=1", full + "#x", full.replace("/v1/", "/v2/"),
-                    full.replace(scheme + ":", "https:"), full + "A".repeat(512),
-                    scheme.equals("liddlepuzzles") ? link : production}) {
-                try {
-                    LocalShareLink.manualTransport(invalid, scheme);
-                    throw new AssertionError("Invalid manual transport accepted");
-                } catch (IllegalArgumentException expected) { /* Foreign and malformed routes are not normalized. */ }
-            }
-        }
+        transports(link);
+        invalidTransports(link);
         Game imported = SudokuShare.open(link);
         check(Arrays.equals(clues, imported.clues), "Exact starting givens round-trip");
         check(Arrays.equals(clues, imported.values) && imported.elapsedMillis == 0 && !imported.canUndo(),
@@ -70,11 +56,66 @@ public final class SharingTests {
         wordDateAndSchedule();
     }
 
+    private static void transports(String link) {
+        String fragment = link.substring(LocalShareLink.SCHEME.length());
+        String web = LocalShareLink.toTransport(link, "liddlepuzzles");
+        check(web.equals("https://mllab.fyi/liddle-puzzles/share/#" + fragment), "Exact outbound HTTPS link");
+        URI uri = URI.create(web);
+        check(uri.getRawPath().equals("/liddle-puzzles/share/") && uri.getRawQuery() == null
+                && fragment.equals(uri.getRawFragment()), "Only the fragment carries the puzzle");
+        String legacy = "liddlepuzzles://" + fragment;
+        check(LocalShareLink.fromTransport(web, "liddlepuzzles").equals(link)
+                && LocalShareLink.fromTransport(legacy, "liddlepuzzles").equals(link),
+                "HTTPS and legacy VIEW intents keep the same starting definition and save key");
+        check(LocalShareLink.toTransport(link, "liddlepuzzles-local").equals(link)
+                && LocalShareLink.fromTransport(link, "liddlepuzzles-local").equals(link),
+                "Validation still shares and receives its own custom scheme");
+        for (String pasted : new String[]{"  " + web + "  ", legacy, fragment}) {
+            check(LocalShareLink.manualTransport(pasted, "liddlepuzzles").equals(web), "Release paste resolves to HTTPS");
+        }
+        for (String pasted : new String[]{web, link, fragment}) {
+            check(LocalShareLink.manualTransport(pasted, "liddlepuzzles-local").equals(link),
+                    "Validation paste opens inside the validation package");
+        }
+    }
+
+    private static void invalidTransports(String link) {
+        String web = LocalShareLink.toTransport(link, "liddlepuzzles");
+        String legacy = "liddlepuzzles://" + link.substring(LocalShareLink.SCHEME.length());
+        for (String invalid : new String[]{
+                web.replace("https:", "http:"), web.replace("mllab.fyi", "other.mllab.fyi"),
+                web.replace("mllab.fyi", "user@mllab.fyi"), web.replace("mllab.fyi", "mllab.fyi:443"),
+                web.replace("share/#", "share#"), web.replace("share/#", "share/?q=1#"),
+                web.replace("share/#", "share/#%73"), web.replace("/v1/", "/v2/"),
+                web.replace("#sudoku/", "#minesweeper/"), web + "#extra", web + "?q=1",
+                web + "A".repeat(512), legacy + "#extra", legacy + "?q=1", link}) {
+            try {
+                LocalShareLink.fromTransport(invalid, "liddlepuzzles");
+                throw new AssertionError("Invalid release VIEW link accepted");
+            } catch (IllegalArgumentException expected) { /* Reject malformed or foreign routes. */ }
+            try {
+                LocalShareLink.manualTransport(invalid, "liddlepuzzles");
+                throw new AssertionError("Invalid release paste accepted");
+            } catch (IllegalArgumentException expected) { /* Reject malformed or foreign routes. */ }
+        }
+        for (String foreign : new String[]{web, legacy}) {
+            try {
+                LocalShareLink.fromTransport(foreign, "liddlepuzzles-local");
+                throw new AssertionError("Validation accepted a production VIEW link");
+            } catch (IllegalArgumentException expected) { /* Validation has no production VIEW route. */ }
+        }
+        try {
+            LocalShareLink.manualTransport(legacy, "liddlepuzzles-local");
+            throw new AssertionError("Validation accepted a foreign custom scheme");
+        } catch (IllegalArgumentException expected) { /* Only HTTPS is interoperable through explicit paste. */ }
+    }
+
     private static void puzzleDefinitions() {
         for (Mode mode : new Mode[]{Mode.TAKUZU, Mode.NONOGRAM, Mode.FUTOSHIKI, Mode.NUMBERLINK, Mode.SLITHERLINK}) {
             for (int setting : mode.settings()) {
                 Puzzle starting = mode.generate(setting, new java.util.Random(9200 + setting), new Generation());
                 String link = PuzzleShare.link(starting);
+                transports(link);
                 Puzzle imported = PuzzleShare.open(link);
                 check(link.equals(PuzzleShare.link(imported)) && imported.size() == starting.size(), "Exact " + mode + " definition and variant");
                 check(Arrays.equals(((UndoablePuzzle) starting).entries(), ((UndoablePuzzle) imported).entries()),
@@ -112,6 +153,7 @@ public final class SharingTests {
             DailyWord game = DailyWordTests.fresh();
             java.time.LocalDate date = DailyWord.EPOCH.plusDays(7);
             String link = WordShare.link(game, date);
+            transports(link);
             check(WordShare.date(link, game).equals(date), "Exact Word date");
             game.letter(game.day(date), 'a');
             game.day(date).setElapsed(20000);

@@ -49,7 +49,7 @@ public final class DailyWordTests {
     private static void schedule() throws Exception {
         for (String[] expected : new String[][]{
                 {"answers-v1.txt", "c74528789b30d50ecc6a9d04fb8cfa05ebe160a79fa5dce80c9b111690b7f7f6"},
-                {"guesses-v1.txt", "570b5ed0f3548919676345e6329ff9e221342c2fe8b3e8c859f57c5975a19cbb"}}) {
+                {"guesses-v1.txt", "183cfc91aa63d46af56c9342a1e1f3c7313a16a8679874b278d695d3b0eaf8d6"}}) {
             check(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(Files.readAllBytes(DATA.resolve(expected[0])))).equals(expected[1]),
                     "Pinned Daily Word assets: " + expected[0]);
@@ -164,8 +164,9 @@ public final class DailyWordTests {
 
     private static void retiredGuesses() throws Exception {
         List<String> retired = List.of(
-                "arses", "bitch", "cunts", "cunty", "dicks", "dildo", "fucks", "jisms", "pissy", "porno", "porns",
-                "pussy", "shite", "shits", "sluts", "spunk", "titty", "twats", "wanks", "wanky", "whore");
+                "arses", "bitch", "boner", "cunts", "cunty", "dicks", "dildo", "fagot", "fucks", "jisms", "nudes",
+                "pissy", "porno", "porns", "pussy", "shite", "shits", "shtup", "sluts", "spunk", "titty", "twats",
+                "wanks", "wanky", "whore");
         DailyWord game = fresh();
         DailyWord.Day day = game.day(DailyWord.EPOCH);
         for (String word : retired) {

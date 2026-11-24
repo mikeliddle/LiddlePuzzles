@@ -346,7 +346,7 @@ public final class MainActivity extends Activity {
         inputBackground.addState(new int[0], field);
         input.setBackground(inputBackground);
         input.setHint(R.string.paste_puzzle_hint);
-        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1024)});
+        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(LocalShareLink.MAX_PASTE_LENGTH)});
         input.setText(puzzleLinkDraft);
 
         TextView label = text(getString(R.string.puzzle_link_label), 16, palette.ink);

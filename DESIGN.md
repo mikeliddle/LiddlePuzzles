@@ -229,8 +229,9 @@ information by adding Undo to Minesweeper.
 
 On sharing-enabled builds, **Shared puzzles** is below the game list on Home.
 The separate page has a labeled single-line **Puzzle link** field and one
-primary **Launch puzzle** action. Accept the current build's URL with or without
-the scheme, keep invalid input for correction, and let Back return to Home.
+primary **Launch puzzle** action. Accept the public HTTPS share link, the current
+build's custom scheme, or the bare puzzle link without a scheme. Keep invalid
+input for correction, and let Back return to Home.
 Manual entry makes non-tappable links usable without reading the clipboard
 automatically. Do not add controls to the fitted board for this entry flow.
 

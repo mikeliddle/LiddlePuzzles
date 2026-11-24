@@ -40,6 +40,11 @@ history or solve time. The app you choose handles sending the link under its
 own privacy policy. A recipient's shared-puzzle progress is stored separately
 on their device.
 
+For HTTPS puzzle links, the puzzle definition is in the URL fragment, which
+is not included in the browser's HTTP request to the fallback page. The
+browser, site host, and Android's link-verification service may handle web
+requests independently of the app.
+
 Clearing app storage or uninstalling removes the locally stored app data.
 Installing a compatible update with the same signing certificate preserves it.
 

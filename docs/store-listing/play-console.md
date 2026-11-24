@@ -42,8 +42,8 @@ Google Play requires content accessible to children to be appropriate for
 them. Do not submit the current artifact as Families-ready.
 `answers-v1.txt` still contains the same 619 scheduled answers in the same
 order; the answer is chosen by date and revealed after a loss. The separate
-`guesses-v1.txt` now contains 12,632 entries. The original three probes and
-18 further identified terms were removed from new submissions; none was a
+`guesses-v1.txt` now contains 12,628 entries. The original three probes and
+22 further identified terms were removed from new submissions; none was a
 scheduled answer. The schedule fingerprint and shared-date links are unchanged.
 
 The board and accessible rows still display submitted guesses, including

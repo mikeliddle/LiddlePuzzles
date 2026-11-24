@@ -119,17 +119,27 @@ jobs:
             if [[ "$variant" == validation ]]; then
               apk=app/build/outputs/apk/validation/app-validation.apk
               scheme=liddlepuzzles-local
+              scheme_count=2
             else
               apk=app/build/outputs/apk/release/app-release-unsigned.apk
               scheme=liddlepuzzles
+              scheme_count=3
             fi
             "$TOOLS/aapt2" dump xmltree "$apk" --file AndroidManifest.xml > "$variant-routes.txt"
-            test "$(grep -c 'android:scheme(' "$variant-routes.txt")" -eq 2
+            test "$(grep -c 'android:scheme(' "$variant-routes.txt")" -eq "$scheme_count"
             test "$(grep -cF "=\"$scheme\"" "$variant-routes.txt")" -eq 2
             test "$(grep -cF '="/v1/"' "$variant-routes.txt")" -eq 2
             for mode in sudoku takuzu nonogram futoshiki numberlink slitherlink daily-word; do
               grep -E "android:host.*=\"$mode\"" "$variant-routes.txt" > /dev/null
             done
+            if [[ "$variant" == release ]]; then
+              grep -Eq 'android:autoVerify\([^)]*\)=true' "$variant-routes.txt"
+              grep -Eq 'android:scheme\([^)]*\)="https"' "$variant-routes.txt"
+              grep -Eq 'android:host\([^)]*\)="mllab\.fyi"' "$variant-routes.txt"
+              grep -Eq 'android:path\([^)]*\)="/liddle-puzzles/share/"' "$variant-routes.txt"
+            elif grep -Eq 'android:autoVerify|mllab\.fyi|="/liddle-puzzles/share/"' "$variant-routes.txt"; then
+              exit 1
+            fi
           done
           "$TOOLS/aapt2" dump badging app/build/outputs/apk/androidTest/validation/app-validation-androidTest.apk > test-manifest.txt
           grep -Eq "^package: name='fyi\.mllab\.puzzle\.validation\.test' " test-manifest.txt

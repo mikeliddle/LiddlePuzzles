@@ -5,35 +5,39 @@ import java.util.Base64;
 /** Strict, bounded local transport. Version and mode define all rules, not device defaults. */
 public final class LocalShareLink {
     public static final String SCHEME = "liddlepuzzles-local://";
+    private static final String RELEASE_SCHEME = "liddlepuzzles";
+    private static final String WEB_PREFIX = "https://mllab.fyi/liddle-puzzles/share/#";
     private static final int MAX_LENGTH = 512;
+    static final int MAX_PASTE_LENGTH = 1024;
 
     private LocalShareLink() {}
 
     static String fromTransport(String link, String scheme) {
-        String prefix = scheme + "://";
-        if (link == null || link.length() > MAX_LENGTH || !link.startsWith(prefix))
+        boolean web = RELEASE_SCHEME.equals(scheme) && link != null && link.startsWith(WEB_PREFIX);
+        String prefix = web ? WEB_PREFIX : scheme + "://";
+        if (link == null || !link.startsWith(prefix) || link.length() > MAX_LENGTH - SCHEME.length() + prefix.length())
             throw new IllegalArgumentException("This puzzle link is not for this version of Liddle Puzzles.");
         String canonical = SCHEME + link.substring(prefix.length());
-        kind(canonical);
+        switch (kind(canonical)) {
+            case "sudoku", "daily-word", "takuzu", "nonogram", "futoshiki", "numberlink", "slitherlink" -> {}
+            default -> throw new IllegalArgumentException("This puzzle type cannot be shared.");
+        }
         return canonical;
     }
 
     static String toTransport(String canonical, String scheme) {
         kind(canonical);
-        return scheme + "://" + canonical.substring(SCHEME.length());
+        String prefix = RELEASE_SCHEME.equals(scheme) ? WEB_PREFIX : scheme + "://";
+        return prefix + canonical.substring(SCHEME.length());
     }
 
     static String manualTransport(String text, String scheme) {
+        if (text.length() > MAX_PASTE_LENGTH) throw new IllegalArgumentException("This puzzle link is too long.");
         String link = text.trim();
         if (link.indexOf(':') < 0) link = scheme + "://" + link;
-        String canonical = fromTransport(link, scheme);
-        String kind = kind(canonical);
-        switch (kind) {
-            case "sudoku", "daily-word", "takuzu", "nonogram", "futoshiki", "numberlink", "slitherlink" -> {}
-            default -> throw new IllegalArgumentException("This puzzle type cannot be shared.");
-        }
-        decode(canonical, kind);
-        return link;
+        String canonical = fromTransport(link, link.startsWith(WEB_PREFIX) ? RELEASE_SCHEME : scheme);
+        decode(canonical, kind(canonical));
+        return toTransport(canonical, scheme);
     }
 
     public static String kind(String link) {

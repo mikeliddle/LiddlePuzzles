@@ -36,20 +36,35 @@ untrusted even with these controls: runner network access is still available.
 
 ## Sharing routes and format
 
-The 1.1.5 release candidate did not register a sharing route. Starting with 1.1.6,
-release uses `liddlepuzzles://<mode>/v1/<token>`; validation still uses
-`liddlepuzzles-local://<mode>/v1/<token>` in its separate package. Debug does not
-advertise a route. Each sharing-enabled build opens the Android Sharesheet
-and accepts only its own explicit scheme. On Home, **Shared puzzles** opens
-a page where players can paste the link with or without its scheme. No clipboard
-auto-read; leading/trailing whitespace is allowed only in manual entry.
+Published 1.1.6 uses `liddlepuzzles://<mode>/v1/<token>` and cannot open HTTPS
+links natively. The release variant in this source tree shares
+`https://mllab.fyi/liddle-puzzles/share/#<mode>/v1/<token>` through the Android
+Sharesheet and still opens the old release scheme. Validation continues to
+advertise and send only `liddlepuzzles-local://<mode>/v1/<token>` in its separate
+package. Debug has no sharing route. In either sharing-enabled build, **Shared
+puzzles** accepts pasted HTTPS links, that build's custom scheme, or the bare
+`<mode>/v1/<token>` form. Paste opens inside the current app without a web request
+or clipboard auto-read. Only manual entry accepts surrounding whitespace.
 
-This is the same starting-puzzle sharing feature, not a public puzzle catalog.
-Custom schemes are not verified Android App Links; some SMS/chat clients leave
-them as plain text and another app can claim an unverified scheme. A verified
-public HTTPS route would require a separately selected host, a domain
-association for the shipping package/signing certificate, and a browser fallback.
-No website, server, network permission, account, or progress transfer is added.
+The release manifest asks Android to verify the exact HTTPS host and the
+`/liddle-puzzles/share/` path. Without an installed handler, the browser opens
+the static fallback; the token is in the fragment, never in the HTTP request.
+The app remains permission-free and offline. Domain verification is handled
+by Android outside the app. Before shipping, verify that
+`https://mllab.fyi/.well-known/assetlinks.json` returns JSON over HTTPS without
+redirects, granting `delegate_permission/common.handle_all_urls` to
+`fyi.mllab.puzzle` for the SHA-256 certificate of the APK actually distributed
+(use the Play app-signing certificate for a Play-installed build, not the
+upload certificate). Verify the fallback returns HTTP 200 without needing a
+token and does not transmit the fragment.
+
+On an isolated device/profile with the actual signed release, use
+`adb shell pm verify-app-links --re-verify fyi.mllab.puzzle` on Android 12+,
+then `adb shell pm get-app-links fyi.mllab.puzzle` and confirm `mllab.fyi` is
+`verified`. Open a real HTTPS link from a messaging app without specifying a
+package or component; also test the legacy scheme, browser fallback without
+the new build, and Android 10 link handling separately. APK/host checks do
+not verify installed-release association.
 
 V1 supports Sudoku, Takuzu, Nonograms, Futoshiki, Numberlink, Slitherlink and
 Daily Word, not Minesweeper. The two transports use the same definitions:
@@ -66,8 +81,9 @@ Daily Word, not Minesweeper. The two transports use the same definitions:
   change that fingerprint. Explicitly retired guesses remain readable in old
   normal and shared saves without being accepted as new submissions.
 
-Tokens use canonical unpadded URL-safe Base64. Links are capped at 512
-characters; versions, dimensions, clue ranges and canonical encodings are
+Tokens use canonical unpadded URL-safe Base64. The internal custom format is
+capped at 512 characters; HTTPS swaps the fixed prefix without expanding the
+puzzle payload budget. Versions, dimensions, clue ranges and canonical encodings are
 checked. Generated imports are checked for a unique solution off the UI thread
 under finite budgets. Only the starting definition is shared, never moves,
 notes, history, solve time, or answers. Recipients resume separate private

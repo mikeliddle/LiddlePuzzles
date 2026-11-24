@@ -85,7 +85,6 @@ android {
     }
     sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/legalAssets')
     sourceSets.validation.manifest.srcFile 'src/sharing/AndroidManifest.xml'
-    sourceSets.release.manifest.srcFile 'src/sharing/AndroidManifest.xml'
     buildFeatures {
         buildConfig true
     }

@@ -67,7 +67,8 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
                 assertEquals(invalid, input.getText().toString());
                 assertEquals(View.VISIBLE, decor.findViewWithTag("puzzle-link-error").getVisibility());
             });
-            for (String text : new String[]{link, "  " + link.substring(LocalShareLink.SCHEME.length()) + "  "}) {
+            String web = "https://mllab.fyi/liddle-puzzles/share/#" + link.substring(LocalShareLink.SCHEME.length());
+            for (String text : new String[]{web, link, "  " + link.substring(LocalShareLink.SCHEME.length()) + "  "}) {
                 Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(PuzzleActivity.class.getName(), null, false);
                 try {
                     instrumentation.runOnMainSync(() -> {

@@ -77,6 +77,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect APK.' }
           $package = $badging | Select-String "^package: name='fyi\.mllab\.puzzle' versionCode='([1-9][0-9]*)' versionName='([0-9]+\.[0-9]+\.[0-9]+)'"
           if (!$package -or ($badging -match 'application-debuggable|uses-permission')) { throw 'Unexpected release manifest.' }
+          $routes = & "$tools\aapt2.exe" dump xmltree $apk --file AndroidManifest.xml
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect sharing routes.' }
+          if (($routes -match 'android:scheme\(').Count -ne 3 -or
+              ($routes -match 'android:scheme\([^)]*\)="liddlepuzzles"').Count -ne 2 -or
+              !($routes -match 'android:autoVerify\([^)]*\)=true') -or
+              !($routes -match 'android:scheme\([^)]*\)="https"') -or
+              !($routes -match 'android:host\([^)]*\)="mllab\.fyi"') -or
+              !($routes -match 'android:path\([^)]*\)="/liddle-puzzles/share/"')) {
+            throw 'Unexpected release sharing routes.'
+          }
           $code = $package.Matches[0].Groups[1].Value
           $version = $package.Matches[0].Groups[2].Value
           & "$env:JAVA_HOME\bin\java.exe" -jar "$tools\lib\apksigner.jar" verify $apk 2>$null

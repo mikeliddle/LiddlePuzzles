@@ -27,8 +27,9 @@ public final class DailyWord {
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     // Previously accepted guesses remain valid in saved history, not in new submissions.
     private static final Set<String> RETIRED_GUESSES = Set.of(
-            "arses", "bitch", "cunts", "cunty", "dicks", "dildo", "fucks", "jisms", "pissy", "porno", "porns",
-            "pussy", "shite", "shits", "sluts", "spunk", "titty", "twats", "wanks", "wanky", "whore");
+            "arses", "bitch", "boner", "cunts", "cunty", "dicks", "dildo", "fagot", "fucks", "jisms", "nudes",
+            "pissy", "porno", "porns", "pussy", "shite", "shits", "shtup", "sluts", "spunk", "titty", "twats",
+            "wanks", "wanky", "whore");
     private final Set<String> allowed;
     private final List<String> answers;
     private final byte[] scheduleFingerprint;

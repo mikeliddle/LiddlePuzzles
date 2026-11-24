@@ -29,7 +29,7 @@ count as a device or hosted smoke pass.
 
 ## Sharing routes and format
 
-The 1.1.5 release did not register a sharing route. In the follow-up code,
+The 1.1.5 release candidate did not register a sharing route. Starting with 1.1.6,
 release uses `liddlepuzzles://<mode>/v1/<token>`; validation still uses
 `liddlepuzzles-local://<mode>/v1/<token>` in its separate package. Debug does not
 advertise a route. Each sharing-enabled build opens the Android Sharesheet

@@ -239,7 +239,17 @@ jobs:
           $tag = "v$env:VERSION"
           $existing = Invoke-WebRequest "https://api.github.com/repos/mikeliddle/LiddlePuzzles/git/ref/tags/$tag" -Headers $headers -SkipHttpErrorCheck
           if ($existing.StatusCode -ne 404) { throw 'Release tag already exists or could not be checked; refusing to reuse it.' }
-          $notes = "- Settings: scroll to About to see your installed app version and open the latest GitHub release in your browser.`n`nReviewed source: $env:GITHUB_SHA`nAndroid versionCode: $env:VERSION_CODE`nApplication ID: fyi.mllab.puzzle. Compatible updates retain this app's existing local progress; legacy com.quietgrid.sudoku private data does not transfer automatically.`nOffline, nondebuggable APK signed with the existing public-release certificate. See SHA256SUMS.txt."
+          $notes = @"
+          - Share starting puzzles in seven modes. If a link is not tappable, paste it into Shared puzzles on Home.
+          - Redo moves in games that already offer Undo. A new move clears Redo.
+          - Nonogram taps are more forgiving when your finger moves inside the same square.
+          - Settings > About shows your installed version and links to the latest release.
+
+          Reviewed source: $env:GITHUB_SHA
+          Android versionCode: $env:VERSION_CODE
+          Application ID: fyi.mllab.puzzle. Compatible updates retain this app's existing local progress; legacy com.quietgrid.sudoku private data does not transfer automatically.
+          Offline, nondebuggable APK signed with the existing public-release certificate. See SHA256SUMS.txt.
+          "@
           gh release create $tag "signed\liddle-puzzles-$env:VERSION.apk" signed\SHA256SUMS.txt --repo mikeliddle/LiddlePuzzles --target $env:GITHUB_SHA --title "Liddle Puzzles $env:VERSION" --notes $notes --fail-on-no-commits --draft
           if ($LASTEXITCODE -ne 0) { throw 'Draft release or asset upload failed; inspect GitHub before retrying.' }
           gh release edit $tag --repo mikeliddle/LiddlePuzzles --draft=false

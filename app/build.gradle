@@ -47,8 +47,8 @@ android {
         applicationId 'fyi.mllab.puzzle'
         minSdk 29
         targetSdk 36
-        versionCode 8
-        versionName '1.1.5'
+        versionCode 9
+        versionName '1.1.6'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
         manifestPlaceholders = [appLabel: '@string/app_name']
         buildConfigField 'boolean', 'LOCAL_PUZZLE_SHARING', 'false'

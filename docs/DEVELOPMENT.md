@@ -62,7 +62,9 @@ Daily Word, not Minesweeper. The two transports use the same definitions:
   Nonograms include row then column run lists, each preceded by a count.
 - Daily Word uses a signed 64-bit epoch day and a SHA-256 fingerprint of the
   `local-v1` schedule ID, epoch, and ordered answers. Replay stays fixed to that
-  day; an unavailable schedule is rejected.
+  day; an unavailable schedule is rejected. Changes to accepted guesses do not
+  change that fingerprint. Explicitly retired guesses remain readable in old
+  normal and shared saves without being accepted as new submissions.
 
 Tokens use canonical unpadded URL-safe Base64. Links are capped at 512
 characters; versions, dimensions, clue ranges and canonical encodings are

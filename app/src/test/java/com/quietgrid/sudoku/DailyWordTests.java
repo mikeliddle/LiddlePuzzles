@@ -28,6 +28,7 @@ public final class DailyWordTests {
         calendar();
         scoring();
         playAndPersistence();
+        retiredGuesses();
         timedRecords();
         badData();
         System.out.println("PASS: " + checks + " Daily Word assertions");
@@ -48,10 +49,10 @@ public final class DailyWordTests {
     private static void schedule() throws Exception {
         for (String[] expected : new String[][]{
                 {"answers-v1.txt", "c74528789b30d50ecc6a9d04fb8cfa05ebe160a79fa5dce80c9b111690b7f7f6"},
-                {"guesses-v1.txt", "1e1d84f7a96ac1e53802d28d99f4db6393933d941b2c68e531ba3a9735857e1d"}}) {
+                {"guesses-v1.txt", "94fc55ba7e1c819d0afc96b31a49cb6415c47787d0baf37912000b8b8939bb24"}}) {
             check(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(Files.readAllBytes(DATA.resolve(expected[0])))).equals(expected[1]),
-                    "Released v1 dictionary/schedule bytes must stay immutable");
+                    "Pinned Daily Word assets: " + expected[0]);
         }
         DailyWord first = fresh(), second = fresh();
         check(first.scheduleLength() == 619, "Documented finite cycle");
@@ -159,6 +160,36 @@ public final class DailyWordTests {
         check(reloaded.finished(reloaded.day(DailyWord.EPOCH)), "Loss persists");
         check(!reloaded.finished(reloaded.day(DailyWord.EPOCH.plusDays(1))), "Rollover unlocks next puzzle only");
         check(reloaded.finished(reloaded.day(DailyWord.EPOCH)), "Clock rollback cannot reset played day");
+    }
+
+    private static void retiredGuesses() throws Exception {
+        List<String> retired = List.of("cunts", "fucks", "shits");
+        DailyWord game = fresh();
+        DailyWord.Day day = game.day(DailyWord.EPOCH);
+        for (String word : retired) {
+            type(game, day, word);
+            check("Not in the word list. Try another word.".equals(game.submit(day))
+                    && day.guesses().isEmpty() && day.draft().equals(word), "Retired word stays an unsubmitted draft");
+        }
+        type(game, day, "apple");
+        check(game.submit(day) == null && day.guesses().equals(List.of("apple")), "Ordinary guess still accepted");
+
+        DailyWord old = new DailyWord(new StringReader(Files.readString(DATA.resolve("guesses-v1.txt"))
+                + "\n" + String.join("\n", retired)), new StringReader(Files.readString(DATA.resolve("answers-v1.txt"))));
+        DailyWord.Day oldDay = old.day(day.date);
+        for (String word : retired) {
+            type(old, oldDay, word);
+            check(old.submit(oldDay) == null, "Old dictionary accepted the retired word");
+        }
+        type(old, oldDay, retired.get(0));
+        oldDay.setElapsed(12345);
+        byte[] saved = bytes(old);
+        game.read(new DataInputStream(new ByteArrayInputStream(saved)));
+        check(Arrays.equals(saved, bytes(game)), "Upgrade preserves submitted guesses, draft and elapsed time");
+        check(WordShare.link(game, day.date).equals(WordShare.link(old, day.date)), "Shared link stays identical");
+        DailyWord shared = fresh();
+        shared.readShared(new DataInputStream(new ByteArrayInputStream(saved)), day.date);
+        check(Arrays.equals(saved, bytes(shared)), "Shared-date save preserves retired guesses and draft too");
     }
 
     private static byte[] bytes(DailyWord game) throws IOException {

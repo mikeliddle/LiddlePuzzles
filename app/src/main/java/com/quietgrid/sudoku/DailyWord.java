@@ -25,6 +25,8 @@ public final class DailyWord {
     public static final int ABSENT = 0, PRESENT = 1, CORRECT = 2;
     private static final Pattern WORD = Pattern.compile("[a-z]{5}");
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+    // Previously accepted guesses remain valid in saved history, not in new submissions.
+    private static final Set<String> RETIRED_GUESSES = Set.of("cunts", "fucks", "shits");
     private final Set<String> allowed;
     private final List<String> answers;
     private final byte[] scheduleFingerprint;
@@ -192,8 +194,12 @@ public final class DailyWord {
                 int attempts = in.readInt();
                 if (attempts < 0 || attempts > 6) throw new IOException("Invalid Daily Word attempt count.");
                 for (int j = 0; j < attempts; j++) {
-                    day.draft = in.readUTF();
-                    if (submit(day) != null) throw new IOException("Invalid Daily Word saved guess.");
+                    String guess = in.readUTF();
+                    if (finished(day) || day.guesses.contains(guess)
+                            || (!allowed.contains(guess) && !RETIRED_GUESSES.contains(guess))) {
+                        throw new IOException("Invalid Daily Word saved guess.");
+                    }
+                    day.guesses.add(guess);
                 }
                 String draft = in.readUTF();
                 if (!draft.matches("[a-z]{0,5}") || (finished(day) && !draft.isEmpty())) {

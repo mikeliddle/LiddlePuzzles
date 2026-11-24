@@ -22,9 +22,10 @@ The Liddle Puzzles tiled-L launcher artwork and Undo/Erase paths are local artwo
 
 ## Daily Word English dictionary
 
-`app/src/main/assets/daily-word/guesses-v1.txt` contains the 12,653 lowercase
+`app/src/main/assets/daily-word/guesses-v1.txt` contains 12,650 lowercase
 ASCII five-letter entries filtered from the English word list in Loren
-Brichter's **Words** project (the Letterpress dictionary).
+Brichter's **Words** project (the Letterpress dictionary). Three formerly
+accepted entries were removed from the shipped guess list.
 
 Source: https://github.com/lorenbrichter/Words
 Pinned revision: `f4976d6a6d34beb431dec8d4b443a138f4dc8bee`

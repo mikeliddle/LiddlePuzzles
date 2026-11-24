@@ -39,15 +39,18 @@ to all versions actually distributed on Play under this package.
 ## Families submission hold: Daily Word
 
 Google Play requires content accessible to children to be appropriate for
-them. Do not submit the current artifact as Families-ready. A host check
-loaded the unsigned release APK's two distinct word lists into the game
-engine: `answers-v1.txt` (619 scheduled answers, chosen by date and revealed
-after a loss) and `guesses-v1.txt` (12,653 accepted entries). The probes
-`cunts`, `fucks`, and `shits` were absent from the answers but accepted and
-retained as guesses. This was a spot check, not a full answer-list review.
-The board renders submitted guesses, and its accessible rows expose their
-letters. Strong language can therefore appear during ordinary play when a
-player types an accepted word, even if it is never a scheduled answer.
+them. Do not submit the current artifact as Families-ready.
+`answers-v1.txt` still contains the same 619 scheduled answers in the same
+order; the answer is chosen by date and revealed after a loss. The separate
+`guesses-v1.txt` now contains 12,650 entries. Only the three probes `cunts`,
+`fucks`, and `shits` were removed from new submissions; none was a scheduled
+answer. The schedule fingerprint and shared-date links are unchanged.
+
+Other strong entries, including `cunty` and `twats`, remain accepted. The
+board and accessible rows still display submitted guesses, including the
+three retired words in older saves, and unsubmitted typed drafts can still
+show those words. The cleanup does not censor text or rewrite player state,
+and is not a full review of either list.
 
 Before submitting for ages 9–12:
 
@@ -58,8 +61,7 @@ Before submitting for ages 9–12:
    an isolated test install: try representative terms as drafts and
    submitted guesses, check what stays visible after reopening, and check
    what large controls and accessibility output expose. Check the answer
-   reveal and a shared-date replay as well. This listing change does not
-   modify the word lists or gameplay.
+   reveal and a shared-date replay as well.
 3. Review the remaining Families requirements for the actual artifact and
    listing, including child data practices and the external Sharesheet
    handoff. No Families compliance determination has been made.

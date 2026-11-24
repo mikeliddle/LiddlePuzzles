@@ -67,7 +67,7 @@ Download the APK and open it on your Android device to install; allow installati
 from your browser or file manager only if Android asks.
 
 In the app, scroll to the bottom of **Settings** for **About**, where you can see
-your installed version and open the GitHub releases page in a browser.
+your installed version and open the latest GitHub release in a browser.
 
 ## About
 

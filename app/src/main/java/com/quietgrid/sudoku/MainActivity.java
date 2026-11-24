@@ -869,13 +869,13 @@ public final class MainActivity extends Activity {
         content.addView(about, new LinearLayout.LayoutParams(-1, -2));
         addCopy(content, getString(R.string.settings_app_version, BuildConfig.VERSION_NAME), 16, palette.ink, 8);
         Button releases = button(getString(R.string.settings_open_releases), false);
-        releases.setOnClickListener(v -> openReleases());
+        releases.setOnClickListener(v -> openLatestRelease());
         addControl(content, releases, 56, 8);
         addCopy(content, getString(R.string.ai_disclosure), 14, palette.muted, 0);
     }
 
-    private void openReleases() {
-        Intent releases = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mikeliddle/LiddlePuzzles/releases"))
+    private void openLatestRelease() {
+        Intent releases = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mikeliddle/LiddlePuzzles/releases/latest"))
                 .addCategory(Intent.CATEGORY_BROWSABLE);
         try {
             startActivity(releases);

@@ -2028,7 +2028,7 @@ public final class DeviceTests extends InstrumentationTestCase {
     }
 
     private boolean globalFromPlay;
-    public void testGlobalAboutShowsInstalledVersionAndOpensReleases() throws Exception {
+    public void testGlobalAboutShowsInstalledVersionAndOpensLatestRelease() throws Exception {
         launch();
         openGlobalSettings();
         String version = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionName;
@@ -2060,7 +2060,7 @@ public final class DeviceTests extends InstrumentationTestCase {
             clickText(releaseLabel);
             assertNotNull(outgoing[0]);
             assertTrue(outgoing[0].hasCategory(Intent.CATEGORY_BROWSABLE));
-            assertEquals("https://github.com/mikeliddle/LiddlePuzzles/releases", outgoing[0].getDataString());
+            assertEquals("https://github.com/mikeliddle/LiddlePuzzles/releases/latest", outgoing[0].getDataString());
             assertNull(outgoing[0].getComponent());
 
             noBrowser[0] = true;

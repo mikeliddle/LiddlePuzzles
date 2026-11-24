@@ -1,15 +1,14 @@
 # Google Play Console checklist
 
 Draft for the first Play listing of `fyi.mllab.puzzle`. These answers describe
-the release variant in this branch, not the validation APK or an already
-published Play build. Confirm against the actual artifact and live prompts
-before submitting.
+the release variant in this source tree, not the validation APK or an already
+published Play build. Confirm against the submission artifact and live prompts.
 
 | Play Console field | Draft |
 | --- | --- |
 | Main store listing | English (US), Game → Puzzle. Use the [copy and assets](README.md) in this directory. |
 | Store contact | `support@mllab.fyi` (public support and privacy contact). |
-| Privacy policy | `https://mllab.fyi/liddle-puzzles/privacy`. Publish and verify the live page: accessible without login or geofencing, non-editable HTML, and identifies the listed developer or Liddle Puzzles. Include the privacy contact, local storage and deletion by clearing app data or uninstalling, data handling/security, and the external browser and Sharesheet handoffs. The release variant on this branch links there from Settings → About. |
+| Privacy policy | [Public privacy page](https://mllab.fyi/liddle-puzzles/privacy), also linked from Settings → About. Confirm the page remains publicly accessible and matches the submission artifact. |
 | Data safety | **No data collected or shared that must be disclosed.** See scope below. |
 | Ads / Advertising ID | No ads; no advertising ID use. |
 | App access | All functionality available without special access. No account, login, membership, paywall, or reviewer credentials. Daily Word uses the device date. |
@@ -17,7 +16,7 @@ before submitting.
 | Sensitive permissions | None declared in the release APK. |
 | Financial features / Health apps | No financial or health features. The local Responsible mode puzzle limit is a gameplay setting, not a health feature. |
 | Other prompts if shown | No government affiliation, news, dating, or social features. Check the actual prompts shown for this listing. |
-| Target audience and content | **Owner decision:** Select only the age groups the app is designed and marketed for. If the audience includes children, review the [Families requirements](https://support.google.com/googleplay/android-developer/answer/9893335). Do not infer the target audience from the content rating. |
+| Target audience and content | **Owner confirmed: Ages 9–12.** Older bands are not confirmed; do not infer them from the content rating. [Families requirements](https://support.google.com/googleplay/android-developer/answer/9893335) apply; see the submission hold below. |
 
 ## Data safety scope
 
@@ -37,6 +36,34 @@ user-initiated third-party transfers from sharing disclosure. About links open
 fixed URLs in a separate browser without attaching app data. Apply the declaration
 to all versions actually distributed on Play under this package.
 
+## Families submission hold: Daily Word
+
+Google Play requires content accessible to children to be appropriate for
+them. Do not submit the current artifact as Families-ready. A host check
+loaded the unsigned release APK's two distinct word lists into the game
+engine: `answers-v1.txt` (619 scheduled answers, chosen by date and revealed
+after a loss) and `guesses-v1.txt` (12,653 accepted entries). The probes
+`cunts`, `fucks`, and `shits` were absent from the answers but accepted and
+retained as guesses. This was a spot check, not a full answer-list review.
+The board renders submitted guesses, and its accessible rows expose their
+letters. Strong language can therefore appear during ordinary play when a
+player types an accepted word, even if it is never a scheduled answer.
+
+Before submitting for ages 9–12:
+
+1. Review **both** lists from the exact submission artifact for age
+   suitability, including profanity, slurs and sexual terms. Check the
+   answer after six misses separately from the allowed-guess behavior.
+2. Resolve how the app handles strong language for children, then verify on
+   an isolated test install: try representative terms as drafts and
+   submitted guesses, check what stays visible after reopening, and check
+   what large controls and accessibility output expose. Check the answer
+   reveal and a shared-date replay as well. This listing change does not
+   modify the word lists or gameplay.
+3. Review the remaining Families requirements for the actual artifact and
+   listing, including child data practices and the external Sharesheet
+   handoff. No Families compliance determination has been made.
+
 ## IARC content rating
 
 Choose **Game** and enter a monitored email for IARC correspondence. Answer
@@ -54,7 +81,8 @@ with these facts, not a guessed rating:
   predefined puzzle through an external app. About links open an external
   browser; there is no in-app web browser.
 
-Before submitting, confirm the privacy page is live, the owner has selected
-target ages, and the live App content and IARC questionnaires are complete.
+In Play Console, enter the listing assets, support email and public privacy
+URL; confirm all intended age bands; complete Data safety, the other live
+App content declarations, and IARC using the final build's behavior.
 See [Prepare your app for review](https://support.google.com/googleplay/android-developer/answer/9859455)
 and [target audience guidance](https://support.google.com/googleplay/android-developer/answer/9867159).

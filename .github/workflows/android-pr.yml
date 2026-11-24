@@ -129,27 +129,29 @@ jobs:
           sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd \
             --force --name ci-smoke --package "$SYSTEM_IMAGE" --device pixel_2 <<< no
-          emulator -avd ci-smoke -port 5554 -no-window -no-audio -no-boot-anim \
+          adb start-server
+          "$ANDROID_HOME/emulator/emulator" -avd ci-smoke -port 5554 -no-window -no-audio -no-boot-anim \
             -no-snapshot -wipe-data -gpu swiftshader -accel on > emulator.log 2>&1 &
-          echo "EMULATOR_PID=$!" >> "$GITHUB_ENV"
-          timeout 240 adb wait-for-device
-          booted=false
+          emulator_pid=$!
+          echo "EMULATOR_PID=$emulator_pid" >> "$GITHUB_ENV"
           for attempt in $(seq 1 120); do
-            if [[ "$(adb shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; then
-              booted=true
-              break
+            if ! kill -0 "$emulator_pid" 2>/dev/null; then
+              echo 'Emulator exited before boot.' >&2
+              tail -100 emulator.log
+              exit 1
+            fi
+            if [[ "$(timeout 5 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+              adb shell input keyevent 82
+              adb shell settings put global window_animation_scale 0
+              adb shell settings put global transition_animation_scale 0
+              adb shell settings put global animator_duration_scale 0
+              exit 0
             fi
             sleep 2
           done
-          if [[ "$booted" != true ]]; then
-            tail -100 emulator.log
-            echo 'Emulator boot timed out.' >&2
-            exit 1
-          fi
-          adb shell input keyevent 82
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
+          tail -100 emulator.log
+          echo 'Emulator boot timed out.' >&2
+          exit 1
       - name: Run repeatable generated-game smoke tests
         run: |
           adb install -r app/build/outputs/apk/validation/app-validation.apk

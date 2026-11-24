@@ -6,6 +6,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.CRC32;
 
 /** Versioned per-mode envelopes detect truncation, corruption and accidental cross-mode reads. */
@@ -37,22 +38,27 @@ public final class PuzzleStore {
             }
             return envelope(0x4C505A33, body.toByteArray());
         }
-        if (!progress.canUndo()) return encode(progress.game);
+        if (!progress.canUndo() && !progress.canRedo()) return encode(progress.game);
         boolean compact = progress.game instanceof Slitherlink && progress.game.size() > 4;
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         try (DataOutputStream out = new DataOutputStream(body)) {
             byte[] current = encode(progress.game);
             out.writeInt(current.length); out.write(current);
-            out.writeInt(progress.undoCount());
-            for (int[] entries : progress.history()) {
-                if (compact) for (int entry : entries) {
-                    if (entry < 0 || entry > 2) throw new IOException("Invalid compact loop mark.");
-                    out.writeByte(entry);
-                }
-                else array(out, entries);
-            }
+            writeHistory(out, progress.history(), compact);
+            if (progress.canRedo()) writeHistory(out, progress.redoHistory(), compact);
         }
-        return envelope(compact ? 0x4C505A34 : 0x4C505A32, body.toByteArray());
+        return envelope(progress.canRedo() ? 0x4C505A35 : compact ? 0x4C505A34 : 0x4C505A32, body.toByteArray());
+    }
+
+    private static void writeHistory(DataOutputStream out, List<int[]> stack, boolean compact) throws IOException {
+        out.writeInt(stack.size());
+        for (int[] entries : stack) {
+            if (compact) for (int entry : entries) {
+                if (entry < 0 || entry > 2) throw new IOException("Invalid compact loop mark.");
+                out.writeByte(entry);
+            }
+            else array(out, entries);
+        }
     }
 
     private static byte[] envelope(int version, byte[] data) throws IOException {
@@ -78,7 +84,8 @@ public final class PuzzleStore {
         try (DataInputStream file = new DataInputStream(new ByteArrayInputStream(bytes))) {
             int version = file.readInt();
             if (version == 0x4C505A31) return new PuzzleProgress(decodeLegacy(expected, bytes));
-            if (version != 0x4C505A32 && version != 0x4C505A34 && !(timed && version == 0x4C505A33))
+            boolean hasRedo = version == 0x4C505A35;
+            if (!hasRedo && version != 0x4C505A32 && version != 0x4C505A34 && !(timed && version == 0x4C505A33))
                 throw new IOException("Unknown puzzle save version.");
             int length = file.readInt();
             if (length < 1 || length > MAX_SAVE_BYTES - 16) throw new IOException("Invalid history save length.");
@@ -97,31 +104,41 @@ public final class PuzzleStore {
                 byte[] current = new byte[currentLength]; in.readFully(current);
                 Puzzle game = decodeLegacy(expected, current);
                 if (!(game instanceof UndoablePuzzle)) throw new IOException("This game does not permit Undo.");
-                boolean compact = version == 0x4C505A34;
-                if (compact && (!(game instanceof Slitherlink) || game.size() <= 4))
+                boolean largeLoop = game instanceof Slitherlink && game.size() > 4;
+                if (version == 0x4C505A34 && !largeLoop)
                     throw new IOException("Compact history belongs to larger loops.");
-                int count = in.readInt();
-                if (count < 1 || count > PuzzleProgress.MAX_UNDO) throw new IOException("Invalid undo count.");
-                int entryCount = ((UndoablePuzzle) game).entries().length;
-                ArrayList<int[]> history = new ArrayList<>();
-                for (int step = 0; step < count; step++) {
-                    int[] entries;
-                    if (compact) {
-                        entries = new int[entryCount];
-                        for (int edge = 0; edge < entryCount; edge++) {
-                            entries[edge] = in.readUnsignedByte();
-                            if (entries[edge] > 2) throw new IOException("Invalid compact loop mark.");
-                        }
-                    } else entries = array(in, entryCount, -1, 4);
-                    Puzzle previous = game.copy();
-                    System.arraycopy(entries, 0, ((UndoablePuzzle) previous).entries(), 0, entryCount);
-                    decodeLegacy(expected, encode(previous));
-                    history.add(entries);
-                }
+                boolean compact = version == 0x4C505A34 || (hasRedo && largeLoop);
+                List<int[]> history = readHistory(in, game, compact, hasRedo ? 0 : 1, PuzzleProgress.MAX_UNDO);
+                List<int[]> redo = hasRedo
+                        ? readHistory(in, game, compact, 1, PuzzleProgress.MAX_UNDO - history.size())
+                        : List.of();
                 if (in.read() != -1) throw new IOException("Unexpected history data.");
-                return new PuzzleProgress(game, history);
+                return new PuzzleProgress(game, history, redo, 0);
             }
         }
+    }
+
+    private static List<int[]> readHistory(DataInputStream in, Puzzle game, boolean compact, int min, int max)
+            throws IOException {
+        int count = in.readInt();
+        if (count < min || count > max) throw new IOException("Invalid move history count.");
+        int entryCount = ((UndoablePuzzle) game).entries().length;
+        List<int[]> history = new ArrayList<>(count);
+        for (int step = 0; step < count; step++) {
+            int[] entries;
+            if (compact) {
+                entries = new int[entryCount];
+                for (int i = 0; i < entryCount; i++) {
+                    entries[i] = in.readUnsignedByte();
+                    if (entries[i] > 2) throw new IOException("Invalid compact loop mark.");
+                }
+            } else entries = array(in, entryCount, -1, 4);
+            Puzzle previous = game.copy();
+            System.arraycopy(entries, 0, ((UndoablePuzzle) previous).entries(), 0, entryCount);
+            decodeLegacy(game.mode(), encode(previous));
+            history.add(entries);
+        }
+        return history;
     }
 
     private static Puzzle decodeLegacy(Mode expected, byte[] bytes) throws IOException {

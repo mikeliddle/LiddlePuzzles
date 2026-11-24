@@ -54,7 +54,9 @@ public final class MainActivity extends Activity {
     static final String[] COLOR_NAMES = {"Red", "Orange", "Yellow", "Green", "Blue", "Pink", "Purple", "Brown"};
     private static final String[] COLOR_SWATCHES = {"#C83B46", "#E68A22", "#E1BE19", "#368449",
             "#3675C3", "#CE5B96", "#965EB0", "#926949"};
-    private enum Screen { HUB, MENU, PLAY, SETTINGS, WIN }
+    private enum Screen { HUB, MENU, PLAY, SETTINGS, WIN, SHARED_PUZZLES }
+    private android.widget.EditText puzzleLinkInput;
+    private String puzzleLinkDraft;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Button[] bank = new Button[9];
@@ -76,7 +78,7 @@ public final class MainActivity extends Activity {
     java.util.function.Function<File, DurableFile> saveFileFactory = AndroidSaveFile::at;
     private BoardView board;
     private TextView clock;
-    private ImageButton undoButton, eraseButton, gameSettingsButton;
+    private ImageButton undoButton, redoButton, eraseButton, gameSettingsButton;
     private Button notesButton;
     private Palette palette;
     private Screen screen = Screen.HUB, settingsReturn = Screen.HUB;
@@ -90,7 +92,7 @@ public final class MainActivity extends Activity {
     private android.widget.Spinner squarePicker;
     private android.widget.ArrayAdapter<String> squareChoices;
     private TextView largeSquare;
-    private Button largeNotes, largeErase, largeUndo;
+    private Button largeNotes, largeErase, largeUndo, largeRedo;
     private final Button[] largeDigits = new Button[9];
     private int largeTarget;
     private CelebrationView celebration;
@@ -151,8 +153,10 @@ public final class MainActivity extends Activity {
         preferences = getSharedPreferences("settings", MODE_PRIVATE);
         sharedMode = BuildConfig.LOCAL_PUZZLE_SHARING && Intent.ACTION_VIEW.equals(getIntent().getAction());
         if (sharedMode) {
-            sharedLink = getIntent().getDataString();
-            try { sharedToken = SudokuShare.token(sharedLink); }
+            try {
+                sharedLink = PuzzleSharing.incoming(getIntent());
+                sharedToken = SudokuShare.token(sharedLink);
+            }
             catch (IllegalArgumentException ex) {
                 Log.e("Sudoku", "Invalid shared link", ex);
                 sharedLinkError = ex.getMessage();
@@ -178,6 +182,7 @@ public final class MainActivity extends Activity {
         }
         if (state != null) {
             screen = Screen.valueOf(state.getString("screen", Screen.HUB.name()));
+            puzzleLinkDraft = state.getString("puzzleLinkDraft");
             settingsReturn = Screen.valueOf(state.getString("settingsReturn", Screen.HUB.name()));
             settingsGame = state.getString(SETTINGS_GAME);
             settingsFromGlobal = state.getBoolean("settingsFromGlobal");
@@ -199,7 +204,8 @@ public final class MainActivity extends Activity {
                 if (screen == Screen.PLAY && game == null) screen = Screen.MENU;
                 else if (screen == Screen.PLAY && game.won() && !limited()) screen = Screen.WIN;
                 if (screen == Screen.WIN && (game == null || !game.won())) screen = Screen.MENU;
-                render(false); saveSession.ready();
+                if (screen != Screen.SHARED_PUZZLES) render(false);
+                saveSession.ready();
                 if (sharedMode && restoreError == null && freshShared && !limited())
                     saveSession.dispatch(owner -> owner.save(PuzzleSave.Edit.REPLACE, value -> {}));
                 if (restart != null && !sharedMode) generate(restart);
@@ -231,6 +237,8 @@ public final class MainActivity extends Activity {
             int left, top, right, bottom;
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                if (screen == Screen.SHARED_PUZZLES)
+                    bars = android.graphics.Insets.max(bars, insets.getInsets(WindowInsets.Type.ime()));
                 left = bars.left; top = bars.top; right = bars.right; bottom = bars.bottom;
             } else {
                 left = insets.getSystemWindowInsetLeft(); top = insets.getSystemWindowInsetTop();
@@ -260,6 +268,7 @@ public final class MainActivity extends Activity {
         else if (screen == Screen.SETTINGS) buildSettings();
         else if (screen == Screen.WIN) buildWin(animateWin);
         else if (screen == Screen.HUB) buildHub();
+        else if (screen == Screen.SHARED_PUZZLES) buildSharedPuzzles();
         else buildMenu();
     }
 
@@ -293,6 +302,80 @@ public final class MainActivity extends Activity {
                     .putExtra(PuzzleActivity.MODE, mode.name())));
             addControl(content, puzzle, 72, 8);
         }
+        if (BuildConfig.LOCAL_PUZZLE_SHARING) {
+            Button open = button(getString(R.string.shared_puzzles), false);
+            open.setTag("shared-puzzles");
+            open.setOnClickListener(v -> navigate(Screen.SHARED_PUZZLES));
+            addControl(content, open, 56, 16);
+        }
+    }
+
+    private void buildSharedPuzzles() {
+        LinearLayout content = scrollContent(root(false), dp(520));
+        content.setFocusableInTouchMode(true);
+        LinearLayout heading = row();
+        ImageButton back = navigationButton(getString(R.string.back_to_puzzles), R.drawable.ic_back);
+        back.setOnClickListener(v -> navigateBack());
+        heading.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView title = text(getString(R.string.shared_puzzles), 26, palette.ink);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setAccessibilityHeading(true);
+        title.setMinHeight(dp(56));
+        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        ScreenChrome.centerTitle(heading, title);
+        ScreenChrome.pin(content, heading);
+
+        android.widget.EditText input = new android.widget.EditText(this);
+        puzzleLinkInput = input;
+        input.setTag("puzzle-link-input");
+        input.setId(View.generateViewId());
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        input.setSingleLine(true);
+        input.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        input.setTextColor(palette.ink);
+        input.setHintTextColor(palette.muted);
+        input.setTextSize(16);
+        input.setPadding(dp(16), dp(12), dp(16), dp(12));
+        GradientDrawable field = buttonSurface(palette.surface, dp(12));
+        field.setStroke(dp(1), palette.line);
+        GradientDrawable focused = buttonSurface(palette.surface, dp(12));
+        focused.setStroke(dp(2), palette.accent);
+        android.graphics.drawable.StateListDrawable inputBackground = new android.graphics.drawable.StateListDrawable();
+        inputBackground.addState(new int[]{android.R.attr.state_focused}, focused);
+        inputBackground.addState(new int[0], field);
+        input.setBackground(inputBackground);
+        input.setHint(R.string.paste_puzzle_hint);
+        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1024)});
+        input.setText(puzzleLinkDraft);
+
+        TextView label = text(getString(R.string.puzzle_link_label), 16, palette.ink);
+        label.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        label.setLabelFor(input.getId());
+        addControl(content, label, 32, 4);
+        addControl(content, input, 56, 16);
+        Button launch = button(getString(R.string.open_puzzle_action), true);
+        launch.setTag("launch-puzzle-link");
+        addControl(content, launch, 56, 8);
+        TextView error = text("", 14, palette.error);
+        error.setTag("puzzle-link-error");
+        error.setGravity(Gravity.START);
+        error.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        error.setVisibility(View.GONE);
+        content.addView(error, new LinearLayout.LayoutParams(-1, -2));
+        launch.setOnClickListener(v -> {
+            try {
+                PuzzleSharing.openFromText(this, input.getText().toString());
+                error.setVisibility(View.GONE);
+            } catch (IllegalArgumentException ex) {
+                String message = getString(R.string.puzzle_link_invalid);
+                error.setText(message);
+                error.setVisibility(View.VISIBLE);
+            }
+        });
+        input.setOnEditorActionListener((view, action, event) ->
+                action == android.view.inputmethod.EditorInfo.IME_ACTION_GO && launch.performClick());
+        content.requestFocus();
     }
 
     private Button hubButton(String name, int resource, int color) {
@@ -368,7 +451,7 @@ public final class MainActivity extends Activity {
             ControlStyle.menuResume(content, resume, palette);
         }
         if (BuildConfig.LOCAL_PUZZLE_SHARING && game != null) {
-            Button share = button(getString(R.string.share_sudoku_local), false);
+            Button share = button(getString(R.string.share_puzzle_local), false);
             share.setOnClickListener(v -> sharePuzzle());
             addControl(content, share, 56, 12);
         }
@@ -426,6 +509,7 @@ public final class MainActivity extends Activity {
         title.setHorizontallyScrolling(false); title.setTag("puzzle-title");
         header.addView(title, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton large = navigationButton("Large controls", R.drawable.ic_large_controls);
+        large.setTooltipText("Large controls: choose a square and enter a number");
         large.setOnClickListener(v -> openLargeControls());
         header.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ImageButton settings = navigationButton("Settings", R.drawable.ic_settings);
@@ -443,7 +527,7 @@ public final class MainActivity extends Activity {
         clock.setMinHeight(dp(30));
         details.addView(clock, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
         if (BuildConfig.LOCAL_PUZZLE_SHARING) {
-            ImageButton share = navigationButton(getString(R.string.share_sudoku_local), R.drawable.ic_share);
+            ImageButton share = navigationButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> sharePuzzle());
             details.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
         }
@@ -456,14 +540,9 @@ public final class MainActivity extends Activity {
         controlsLayout.topMargin = dp(12);
         LinearLayout tools = row();
         undoButton = iconButton("Undo", R.drawable.ic_undo);
-        undoButton.setOnClickListener(v -> {
-            saveSession.dispatch(owner -> {
-                if (!owner.readOnly() && owner.game.undo()) owner.changed(value -> {
-                    value.persistPreference(autoNotesKey(value.game.difficulty), value.game.autoNotes);
-                    if (value.resumed && value.screen == Screen.PLAY) value.announce("Move undone");
-                });
-            });
-        });
+        redoButton = iconButton("Redo", R.drawable.ic_redo);
+        undoButton.setOnClickListener(v -> restoreMove(false));
+        redoButton.setOnClickListener(v -> restoreMove(true));
         eraseButton = iconButton("Erase", R.drawable.ic_erase);
         eraseButton.setOnClickListener(v -> saveSession.dispatch(owner -> { if (!owner.readOnly() && owner.game.clear()) owner.changed(); }));
         notesButton = button("Notes", false);
@@ -479,12 +558,14 @@ public final class MainActivity extends Activity {
                     value.announce(value.game.noteMode ? "Notes mode" : "Number entry mode"); });
             });
         });
-        for (View tool : new View[]{undoButton, eraseButton, notesButton}) {
+        for (View tool : new View[]{undoButton, redoButton, eraseButton, notesButton}) {
             tool.setPadding(dp(16), dp(16), dp(16), dp(16));
         }
         LinearLayout.LayoutParams undoLayout = weighted(56); undoLayout.setMarginEnd(dp(8));
+        LinearLayout.LayoutParams redoLayout = weighted(56); redoLayout.setMarginEnd(dp(8));
         LinearLayout.LayoutParams eraseLayout = weighted(56); eraseLayout.setMarginEnd(dp(8));
         tools.addView(undoButton, undoLayout);
+        tools.addView(redoButton, redoLayout);
         tools.addView(eraseButton, eraseLayout);
         LinearLayout.LayoutParams notesLayout = weighted(56);
         notesLayout.weight = 1.4f;
@@ -567,6 +648,16 @@ public final class MainActivity extends Activity {
             owner.board.setGame(owner.game); action.accept(owner.board);
         }));
     }
+    private void restoreMove(boolean forward) {
+        saveSession.dispatch(owner -> {
+            if (owner.readOnly() || !(forward ? owner.game.redo() : owner.game.undo())) return;
+            owner.changed(value -> {
+                value.persistPreference(autoNotesKey(value.game.difficulty), value.game.autoNotes);
+                if (value.resumed && value.screen == Screen.PLAY) value.announce(forward ? "Move redone" : "Move undone");
+            });
+        });
+    }
+
     private void changed() { changed(owner -> {}); }
     private void changed(java.util.function.Consumer<MainActivity> success) {
         updateElapsed();
@@ -596,6 +687,7 @@ public final class MainActivity extends Activity {
         board.setEnabled(!readOnly);
         refreshLargeControls();
         undoButton.setEnabled(!readOnly && game.canUndo() && !loading);
+        redoButton.setEnabled(!readOnly && game.canRedo() && !loading);
         notesButton.setEnabled(!readOnly);
         boolean editable = !showingLimit && game.selected >= 0 && game.clues[game.selected] == 0 && !game.won();
         eraseButton.setEnabled(editable && (game.values[game.selected] != 0 || game.notes[game.selected] != 0));
@@ -675,6 +767,7 @@ public final class MainActivity extends Activity {
         largeNotes = largeControls.action("Notes");
         largeNotes.setOnClickListener(v -> notesButton.performClick());
         largeUndo = largeControls.action("Undo", R.drawable.ic_undo); largeUndo.setOnClickListener(v -> undoButton.performClick());
+        largeRedo = largeControls.action("Redo", R.drawable.ic_redo); largeRedo.setOnClickListener(v -> redoButton.performClick());
         squarePicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 largeTarget = position; refreshLargeTarget();
@@ -711,6 +804,7 @@ public final class MainActivity extends Activity {
         if (game.noteMode) noteFill.setStroke(dp(2), palette.accent);
         largeNotes.setBackground(new android.graphics.drawable.RippleDrawable(rippleColor(), noteFill, null));
         largeUndo.setEnabled(!showingLimit && !game.won() && game.canUndo());
+        largeRedo.setEnabled(!showingLimit && !game.won() && game.canRedo());
         largeNotes.setEnabled(!showingLimit && !game.won());
     }
 
@@ -1163,6 +1257,11 @@ public final class MainActivity extends Activity {
         if (screen == Screen.SETTINGS && settingsOnly) finish();
         else if (screen == Screen.SETTINGS) navigate(settingsReturn);
         else if (screen == Screen.PLAY || screen == Screen.WIN) navigate(Screen.MENU);
+        else if (screen == Screen.SHARED_PUZZLES) {
+            puzzleLinkDraft = null;
+            puzzleLinkInput = null;
+            navigate(Screen.HUB);
+        }
         else if (screen == Screen.MENU) { if (sharedMode) finish(); else navigate(Screen.HUB); }
         else finish();
     }
@@ -1227,15 +1326,7 @@ public final class MainActivity extends Activity {
     private void sharePuzzle() {
         if (!BuildConfig.LOCAL_PUZZLE_SHARING || game == null) return;
         saveSession.dispatch(owner -> {
-            if (owner.game == null) return;
-            Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, owner.getString(R.string.share_sudoku_message, SudokuShare.link(owner.game.clues)));
-            try { owner.startActivity(Intent.createChooser(send, owner.getString(R.string.share_sudoku_local))); }
-            catch (ActivityNotFoundException ex) {
-                Log.e("Sudoku", "No text sharing activity", ex);
-                new AlertDialog.Builder(owner).setTitle(R.string.share_sudoku_error)
-                        .setMessage(R.string.share_sudoku_no_app).setPositiveButton("OK", null).show();
-            }
+            if (owner.game != null) PuzzleSharing.send(owner, "Sudoku", SudokuShare.link(owner.game.clues));
         });
     }
 
@@ -1373,6 +1464,7 @@ public final class MainActivity extends Activity {
         super.onSaveInstanceState(out);
         updateElapsed(); save();
         out.putString("screen", screen.name());
+        if (puzzleLinkInput != null) out.putString("puzzleLinkDraft", puzzleLinkInput.getText().toString());
         out.putString("settingsReturn", settingsReturn.name());
         out.putString(SETTINGS_GAME, settingsGame);
         out.putBoolean("settingsFromGlobal", settingsFromGlobal);

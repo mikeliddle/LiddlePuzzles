@@ -62,7 +62,9 @@ public final class PuzzleActivity extends Activity {
     private LinearLayout content, boardArea;
     private TextView status;
     private Button newPuzzle, retry, mineTool;
-    private ImageButton undo;
+    private ImageButton undo, redo;
+    private Button edgeUndo, edgeRedo;
+    private boolean canceledMultiTouch;
     private ImageButton gameSettingsButton;
     private final View[] binaryKeys = new View[3];
     private LinearLayout binaryBank;
@@ -110,8 +112,8 @@ public final class PuzzleActivity extends Activity {
         catch (IllegalArgumentException ex) { Log.e("Puzzle", "Unknown puzzle mode", ex); finish(); return; }
         shared = PuzzleSharing.shared(getIntent());
         if (shared) {
-            sharedLink = getIntent().getDataString();
             try {
+                sharedLink = PuzzleSharing.incoming(getIntent());
                 if (PuzzleShare.mode(sharedLink) != mode) throw new IllegalArgumentException("The link belongs to another puzzle mode.");
                 sharedKey = LocalShareLink.saveKey(sharedLink, PuzzleShare.kind(mode));
             } catch (IllegalArgumentException ex) { Log.e("Puzzle", "Invalid shared link", ex); sharedError = ex.getMessage(); }
@@ -314,16 +316,20 @@ public final class PuzzleActivity extends Activity {
         });
     }
 
-    private void undo() {
-        if (saveSession.defer(PuzzleActivity::undo)) return;
-        if (busy || progress == null || !progress.canUndo() || limited()) return;
+    private void restoreMove(boolean forward) {
+        if (saveSession.defer(owner -> owner.restoreMove(forward))) return;
+        if (busy || progress == null || limited() || !(forward ? progress.canRedo() : progress.canUndo())) return;
         minesFeedback.stop();
         feedback.stop();
         playTime.setRunning(false); completion.stop();
-        PuzzleProgress previous = progress.withElapsed(playTime.elapsedMillis()).undo();
-        persist(previous, game.solved() || game.lost() ? PuzzleSave.Edit.UNDO_FINISH : PuzzleSave.Edit.PLAY, owner -> {
-            owner.progress = previous; owner.game = previous.game; owner.selected = -1; owner.binaryArmed = -1;
-            owner.refresh(null); if (owner.resumed) owner.undo.announceForAccessibility("Move undone.");
+        PuzzleProgress current = progress.withElapsed(playTime.elapsedMillis());
+        PuzzleProgress restored = forward ? current.redo() : current.undo();
+        PuzzleSave.Edit edit = forward && (restored.game.solved() || restored.game.lost()) ? PuzzleSave.Edit.FINISH
+                : !forward && (game.solved() || game.lost()) ? PuzzleSave.Edit.UNDO_FINISH : PuzzleSave.Edit.PLAY;
+        persist(restored, edit, owner -> {
+            if (restored.game.solved() || restored.game.lost()) owner.playTime.restore(restored.elapsedMillis);
+            owner.progress = restored; owner.game = restored.game; owner.selected = -1; owner.binaryArmed = -1;
+            owner.refresh(null); if (owner.resumed) owner.undo.announceForAccessibility(forward ? "Move redone." : "Move undone.");
         });
     }
 
@@ -472,12 +478,16 @@ public final class PuzzleActivity extends Activity {
         content.addView(controls, actionsLayout);
         controls.setTag("puzzle-actions");
         undo = iconButton("Undo last move", R.drawable.ic_undo);
-        undo.setPadding(dp(16), dp(16), dp(16), dp(16));
-        undo.setMinimumHeight(dp(56)); undo.setMinimumWidth(dp(56));
-        undo.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000),
-                surface(palette.surface, palette.line), null));
-        undo.setOnClickListener(v -> undo());
+        redo = iconButton("Redo last move", R.drawable.ic_redo);
+        for (ImageButton action : new ImageButton[]{undo, redo}) {
+            action.setPadding(dp(16), dp(16), dp(16), dp(16));
+            action.setMinimumHeight(dp(56)); action.setMinimumWidth(dp(56));
+            action.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf((palette.ink & 0xFFFFFF) | 0x30000000),
+                    surface(palette.surface, palette.line), null));
+        }
+        undo.setOnClickListener(v -> restoreMove(false));
+        redo.setOnClickListener(v -> restoreMove(true));
         if (mode == Mode.TAKUZU) {
             binaryBank = row(); binaryBank.setMinimumHeight(dp(56));
             binaryBank.setTag("puzzle-input");
@@ -490,10 +500,13 @@ public final class PuzzleActivity extends Activity {
                 LinearLayout.LayoutParams keyLayout = new LinearLayout.LayoutParams(0, dp(56), 1); keyLayout.setMarginEnd(dp(8));
                 binaryBank.addView(key, keyLayout);
             }
-            binaryBank.addView(undo, new LinearLayout.LayoutParams(0, dp(56), 1));
             LinearLayout.LayoutParams bankLayout = new LinearLayout.LayoutParams(-1, -2); bankLayout.topMargin = dp(12);
             content.addView(binaryBank, content.indexOfChild(controls), bankLayout);
-        } else if (mode != Mode.MINESWEEPER) controls.addView(undo, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        }
+        if (mode != Mode.MINESWEEPER) {
+            controls.addView(undo, new LinearLayout.LayoutParams(dp(56), dp(56)));
+            controls.addView(redo, new LinearLayout.LayoutParams(dp(56), dp(56)));
+        }
         boolean wide = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
         sideActions = null;
         if (wide) {
@@ -558,7 +571,11 @@ public final class PuzzleActivity extends Activity {
                 clueList.addView(clue, new LinearLayout.LayoutParams(-1, -2));
             }
             Button accessible = button("");
-            ControlStyle.icon(accessible, "Edge controls", R.drawable.ic_large_controls, palette.accent);
+            accessible.setText("Edge controls");
+            accessible.setContentDescription("Edge controls");
+            accessible.setSingleLine(true);
+            accessible.setAutoSizeTextTypeUniformWithConfiguration(10, 16, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            accessible.setTooltipText("Edge controls: choose an edge and mark it");
             LinearLayout alternatives = column();
             accessible.setOnClickListener(v -> {
                 LargeControlsDialog dialog = new LargeControlsDialog(this, palette, "Edge controls");
@@ -592,6 +609,10 @@ public final class PuzzleActivity extends Activity {
             loopLine.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 1));
             loopCross.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 2));
             alternatives.addView(loopLine); alternatives.addView(loopCross);
+            edgeUndo = button("Undo"); edgeRedo = button("Redo");
+            edgeUndo.setOnClickListener(v -> restoreMove(false));
+            edgeRedo.setOnClickListener(v -> restoreMove(true));
+            alternatives.addView(edgeUndo); alternatives.addView(edgeRedo);
             return;
         }
         LinearLayout grid = column();
@@ -690,6 +711,10 @@ public final class PuzzleActivity extends Activity {
         if (share != null) share.setEnabled(!busy && game != null && !loadFailed);
         undo.setEnabled(!showingLimit && !busy && progress != null && progress.canUndo());
         undo.setAlpha(undo.isEnabled() ? 1f : .38f);
+        redo.setEnabled(!showingLimit && !busy && progress != null && progress.canRedo());
+        redo.setAlpha(redo.isEnabled() ? 1f : .38f);
+        if (edgeUndo != null) edgeUndo.setEnabled(undo.isEnabled());
+        if (edgeRedo != null) edgeRedo.setEnabled(redo.isEnabled());
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
         boolean terminal = game != null && (game.solved() || game.lost());
         if (terminal) { binaryArmed = -1; selected = -1; }
@@ -965,6 +990,20 @@ public final class PuzzleActivity extends Activity {
     }
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (mode == Mode.NONOGRAM || mode == Mode.TAKUZU || mode == Mode.MINESWEEPER) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) canceledMultiTouch = false;
+            if (canceledMultiTouch) return true;
+            if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+                // Intercept before ViewGroup can split the pointers across different buttons.
+                canceledMultiTouch = true;
+                MotionEvent cancel = MotionEvent.obtain(event);
+                try {
+                    cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    super.dispatchTouchEvent(cancel);
+                } finally { cancel.recycle(); }
+                return true;
+            }
+        }
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN && feedback != null) feedback.stop();
         if (mode == Mode.TAKUZU && event.getActionMasked() == MotionEvent.ACTION_DOWN
                 && !inside(binaryGrid, event) && !inside(binaryBank, event)

@@ -111,9 +111,9 @@ final class SlitherlinkBoard extends View {
             return pressed >= 0;
         }
         if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-            if (nearest(event.getX(), event.getY()) != pressed
-                    || Math.hypot(event.getX() - downX, event.getY() - downY)
-                    > ViewConfiguration.get(getContext()).getScaledTouchSlop()) cancelPress();
+            if (nearest(event.getX(), event.getY()) != pressed) cancelPress();
+            else if (Math.hypot(event.getX() - downX, event.getY() - downY)
+                    > ViewConfiguration.get(getContext()).getScaledTouchSlop()) removeCallbacks(hold);
             return true;
         }
         if (event.getActionMasked() == MotionEvent.ACTION_UP) {

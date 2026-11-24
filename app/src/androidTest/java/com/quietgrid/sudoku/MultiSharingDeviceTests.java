@@ -48,6 +48,52 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
     public void testNonogramLargeShareOpenResume() throws Exception { puzzle(Mode.NONOGRAM, 10); }
     public void testSlitherlinkLargeShareOpenResume() throws Exception { puzzle(Mode.SLITHERLINK, 8); }
 
+    public void testManualSharedPuzzleEntry() throws Exception {
+        String link = PuzzleShare.link(Mode.NONOGRAM.generate(5, new Random(2244), new Generation()));
+        prepare(sharedFile(link, Mode.NONOGRAM));
+        Instrumentation instrumentation = getInstrumentation();
+        Activity home = instrumentation.startActivitySync(new Intent(instrumentation.getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        try {
+            NativeSaveAwaiter.await(instrumentation, home);
+            instrumentation.runOnMainSync(() -> {
+                View decor = home.getWindow().getDecorView();
+                assertTrue(decor.findViewWithTag("shared-puzzles").performClick());
+                android.widget.EditText input = decor.findViewWithTag("puzzle-link-input");
+                String invalid = link.replace("liddlepuzzles-local:", "https:");
+                input.setText(invalid);
+                assertTrue(decor.findViewWithTag("launch-puzzle-link").performClick());
+                assertEquals(invalid, input.getText().toString());
+                assertEquals(View.VISIBLE, decor.findViewWithTag("puzzle-link-error").getVisibility());
+            });
+            for (String text : new String[]{link, "  " + link.substring(LocalShareLink.SCHEME.length()) + "  "}) {
+                Instrumentation.ActivityMonitor monitor = instrumentation.addMonitor(PuzzleActivity.class.getName(), null, false);
+                try {
+                    instrumentation.runOnMainSync(() -> {
+                        View decor = home.getWindow().getDecorView();
+                        android.widget.EditText input = decor.findViewWithTag("puzzle-link-input");
+                        input.setText(text);
+                        assertTrue(decor.findViewWithTag("launch-puzzle-link").performClick());
+                    });
+                    activity = monitor.waitForActivityWithTimeout(10000);
+                    assertNotNull("Manual entry opens the shared puzzle", activity);
+                    NativeSaveAwaiter.await(instrumentation, activity);
+                    assertNotNull(field("game"));
+                    close();
+                } finally { instrumentation.removeMonitor(monitor); }
+            }
+            instrumentation.runOnMainSync(() -> {
+                home.onBackPressed();
+                assertNotNull(home.getWindow().getDecorView().findViewWithTag("shared-puzzles"));
+                assertNull(home.getWindow().getDecorView().findViewWithTag("puzzle-link-input"));
+            });
+        } finally {
+            close();
+            instrumentation.runOnMainSync(home::finish);
+            instrumentation.waitForIdleSync();
+        }
+    }
+
     private void puzzle(Mode mode) throws Exception {
         puzzle(mode, mode.defaultSetting());
     }

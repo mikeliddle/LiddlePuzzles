@@ -13,6 +13,23 @@ public final class SharingTests {
     static void run() {
         int[] clues = fixture();
         String link = SudokuShare.link(clues);
+        String production = LocalShareLink.toTransport(link, "liddlepuzzles");
+        check(production.equals("liddlepuzzles://" + link.substring(LocalShareLink.SCHEME.length())),
+                "Production v1 keeps the identical starting definition");
+        for (String scheme : new String[]{"liddlepuzzles", "liddlepuzzles-local"}) {
+            String full = LocalShareLink.toTransport(link, scheme);
+            check(LocalShareLink.fromTransport(full, scheme).equals(link), "Build routes decode the same definition");
+            check(LocalShareLink.manualTransport("  " + full + "  ", scheme).equals(full), "Full URL accepts surrounding whitespace");
+            check(LocalShareLink.manualTransport(full.substring(scheme.length() + 3), scheme).equals(full), "Missing scheme uses current build");
+            for (String invalid : new String[]{full + "?q=1", full + "#x", full.replace("/v1/", "/v2/"),
+                    full.replace(scheme + ":", "https:"), full + "A".repeat(512),
+                    scheme.equals("liddlepuzzles") ? link : production}) {
+                try {
+                    LocalShareLink.manualTransport(invalid, scheme);
+                    throw new AssertionError("Invalid manual transport accepted");
+                } catch (IllegalArgumentException expected) { /* Foreign and malformed routes are not normalized. */ }
+            }
+        }
         Game imported = SudokuShare.open(link);
         check(Arrays.equals(clues, imported.clues), "Exact starting givens round-trip");
         check(Arrays.equals(clues, imported.values) && imported.elapsedMillis == 0 && !imported.canUndo(),

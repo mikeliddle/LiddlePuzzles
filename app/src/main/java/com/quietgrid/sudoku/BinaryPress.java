@@ -42,8 +42,23 @@ final class BinaryPress {
             };
 
             private void cancel() {
-                canceled = true; button.removeCallbacks(hold);
-                button.cancelLongPress(); button.setPressed(false);
+                canceled = true;
+                cancelHold();
+                button.setPressed(false);
+            }
+
+            private void cancelHold() {
+                button.removeCallbacks(hold);
+                button.cancelLongPress();
+            }
+
+            private void track(float nextX, float nextY) {
+                if (nextX < 0 || nextY < 0 || nextX >= button.getWidth() || nextY >= button.getHeight()) {
+                    cancel();
+                } else if (Math.hypot(nextX - x, nextY - y)
+                        > ViewConfiguration.get(button.getContext()).getScaledTouchSlop()) {
+                    cancelHold();
+                }
             }
 
             @Override public boolean onTouch(View view, MotionEvent event) {
@@ -53,9 +68,13 @@ final class BinaryPress {
                     x = event.getX(); y = event.getY();
                     button.postDelayed(hold, timeout(button.getContext()));
                 }
-                if (event.getPointerCount() > 1 || action == MotionEvent.ACTION_CANCEL
-                        || action == MotionEvent.ACTION_MOVE && Math.hypot(event.getX() - x, event.getY() - y)
-                        > ViewConfiguration.get(button.getContext()).getScaledTouchSlop()) cancel();
+                if (event.getPointerCount() > 1 || action == MotionEvent.ACTION_CANCEL) cancel();
+                if (!canceled && !held && (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP)) {
+                    for (int i = 0; i < event.getHistorySize() && !canceled; i++) {
+                        track(event.getHistoricalX(i), event.getHistoricalY(i));
+                    }
+                    if (!canceled) track(event.getX(), event.getY());
+                }
                 if (action == MotionEvent.ACTION_UP) {
                     button.removeCallbacks(hold);
                     if (canceled || held) { button.cancelLongPress(); button.setPressed(false); return true; }

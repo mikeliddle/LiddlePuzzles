@@ -2,7 +2,7 @@ package com.quietgrid.sudoku;
 
 import java.util.Base64;
 
-/** Local validation transport; no public host or production routing is configured. */
+/** Sudoku v1 definition codec. Android maps each build's transport to this internal form. */
 final class SudokuShare {
     static final String PREFIX = "liddlepuzzles-local://sudoku/v1/";
     private static final int TOKEN_LENGTH = 55;

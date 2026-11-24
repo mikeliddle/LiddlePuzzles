@@ -9,6 +9,33 @@ public final class LocalShareLink {
 
     private LocalShareLink() {}
 
+    static String fromTransport(String link, String scheme) {
+        String prefix = scheme + "://";
+        if (link == null || link.length() > MAX_LENGTH || !link.startsWith(prefix))
+            throw new IllegalArgumentException("This puzzle link is not for this version of Liddle Puzzles.");
+        String canonical = SCHEME + link.substring(prefix.length());
+        kind(canonical);
+        return canonical;
+    }
+
+    static String toTransport(String canonical, String scheme) {
+        kind(canonical);
+        return scheme + "://" + canonical.substring(SCHEME.length());
+    }
+
+    static String manualTransport(String text, String scheme) {
+        String link = text.trim();
+        if (link.indexOf(':') < 0) link = scheme + "://" + link;
+        String canonical = fromTransport(link, scheme);
+        String kind = kind(canonical);
+        switch (kind) {
+            case "sudoku", "daily-word", "takuzu", "nonogram", "futoshiki", "numberlink", "slitherlink" -> {}
+            default -> throw new IllegalArgumentException("This puzzle type cannot be shared.");
+        }
+        decode(canonical, kind);
+        return link;
+    }
+
     public static String kind(String link) {
         if (link == null || link.length() > MAX_LENGTH || !link.startsWith(SCHEME))
             throw new IllegalArgumentException("This is not a supported local puzzle link.");

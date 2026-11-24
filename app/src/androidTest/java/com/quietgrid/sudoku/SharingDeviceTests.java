@@ -225,7 +225,7 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
         try {
             getInstrumentation().runOnMainSync(() -> {
                 assertNotNull("The sender must have a committed game", game());
-                View share = findText(activity.getWindow().getDecorView(), activity.getString(R.string.share_sudoku_local));
+                View share = findText(activity.getWindow().getDecorView(), activity.getString(R.string.share_puzzle_local));
                 assertNotNull(share); assertTrue(share.performClick());
             });
             NativeSaveAwaiter.await(getInstrumentation(), activity);
@@ -234,7 +234,7 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
             assertNotNull(send);
             assertEquals(Intent.ACTION_SEND, send.getAction());
             assertEquals("text/plain", send.getType());
-            assertEquals(activity.getString(R.string.share_sudoku_message, link(true)), send.getStringExtra(Intent.EXTRA_TEXT));
+            assertEquals(activity.getString(R.string.share_puzzle_message, "Sudoku", link(true)), send.getStringExtra(Intent.EXTRA_TEXT));
         } finally { getInstrumentation().removeMonitor(monitor); }
     }
 

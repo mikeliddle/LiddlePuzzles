@@ -31,7 +31,7 @@ def requireReleaseSigning = tasks.register('requireReleaseSigning') {
         if (!signingPropertiesFile.exists() ||
                 ['storeFile', 'storePassword', 'keyAlias', 'keyPassword'].any { !signingProperties.getProperty(it) } ||
                 !new File(signingDirectory, signingProperties.getProperty('storeFile')).isFile()) {
-            throw new GradleException('Private release signing is missing or incomplete. See README.md; an unsigned release will not be distributed.')
+            throw new GradleException('Private release signing is missing or incomplete. See docs/DEVELOPMENT.md; an unsigned release will not be distributed.')
         }
     }
 }
@@ -52,6 +52,7 @@ android {
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
         manifestPlaceholders = [appLabel: '@string/app_name']
         buildConfigField 'boolean', 'LOCAL_PUZZLE_SHARING', 'false'
+        buildConfigField 'String', 'PUZZLE_LINK_SCHEME', '""'
     }
     testBuildType 'validation'
 
@@ -70,14 +71,21 @@ android {
             initWith debug
             applicationIdSuffix '.validation'
             manifestPlaceholders = [appLabel: 'Liddle Puzzles validation']
+            manifestPlaceholders.puzzleLinkScheme = 'liddlepuzzles-local'
             buildConfigField 'boolean', 'LOCAL_PUZZLE_SHARING', 'true'
+            buildConfigField 'String', 'PUZZLE_LINK_SCHEME', '"liddlepuzzles-local"'
         }
         release {
             debuggable false
+            manifestPlaceholders.puzzleLinkScheme = 'liddlepuzzles'
+            buildConfigField 'boolean', 'LOCAL_PUZZLE_SHARING', 'true'
+            buildConfigField 'String', 'PUZZLE_LINK_SCHEME', '"liddlepuzzles"'
             signingConfig unsignedRelease == 'true' ? null : signingConfigs.release
         }
     }
     sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/legalAssets')
+    sourceSets.validation.manifest.srcFile 'src/sharing/AndroidManifest.xml'
+    sourceSets.release.manifest.srcFile 'src/sharing/AndroidManifest.xml'
     buildFeatures {
         buildConfig true
     }

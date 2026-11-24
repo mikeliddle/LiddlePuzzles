@@ -339,6 +339,19 @@ public final class PuzzleTests {
             check(Arrays.equals(once, PuzzleStore.encode(progress.undo().game)), "Undo restores the whole previous entry/edge state");
             check(Arrays.equals(baseline, PuzzleStore.encode(progress.undo().undo().game)), "Two undos return exactly to original definition and entries");
             check(!progress.undo().undo().canUndo(), "Empty history is disabled");
+            check(!progress.canRedo(), "Undo-only saves read with no Redo");
+            PuzzleProgress undone = progress.undo().undo().withElapsed(1234);
+            undone = PuzzleStore.decodeProgress(mode, PuzzleStore.encode(undone));
+            check(undone.canRedo() && !undone.canUndo() && undone.elapsedMillis == 1234,
+                    "Redo-only history and timer persist through reopen");
+            check(undone.edited(undone.game.copy()) == undone, "A no-op keeps the redo branch");
+            check(Arrays.equals(once, PuzzleStore.encode(undone.redo().game))
+                    && Arrays.equals(PuzzleStore.encode(twice), PuzzleStore.encode(undone.redo().redo().game))
+                    && !undone.redo().redo().canRedo(), "Redo restores whole states in order");
+            PuzzleProgress branch = undone.redo().edited(original.copy());
+            check(!branch.canRedo() && !branch.undo().redo().canRedo()
+                    && Arrays.equals(baseline, PuzzleStore.encode(branch.undo().redo().game)),
+                    "A new move does not resurrect the discarded future");
             byte[] damaged = encoded.clone(); damaged[damaged.length - 10] ^= 1; reject(mode, damaged);
             reject(mode, Arrays.copyOf(encoded, encoded.length - 1));
             reject(mode, Arrays.copyOf(encoded, encoded.length + 1));
@@ -594,6 +607,10 @@ public final class PuzzleTests {
                                 "All 500 larger-loop states and timer survive compact persistent history");
                         for (int step = 0; step < 500; step++) restored = restored.undo();
                         check(Arrays.equals(PuzzleStore.encode(loop), PuzzleStore.encode(restored.game)), "Every loop Undo restores exact initial bytes");
+                        restored = PuzzleStore.decodeProgress(mode, PuzzleStore.encode(restored));
+                        for (int step = 0; step < 500; step++) restored = restored.redo();
+                        check(Arrays.equals(PuzzleStore.encode(history.game), PuzzleStore.encode(restored.game))
+                                && restored.undoCount() == 500 && !restored.canRedo(), "Compact history persists all 500 Redo steps within the same cap");
                         Slitherlink errors = loop.copy(); Arrays.fill(errors.clues, -1);
                         for (int edge : errors.grid.at[setting + 2]) errors.edges[edge] = 1;
                         check(errors.errors().edges[errors.grid.at[setting + 2][0]].contains("dot row 2 column 2"),

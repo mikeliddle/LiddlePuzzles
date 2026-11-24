@@ -23,7 +23,7 @@ changes; do not reinstate superseded behavior from old screenshots.
 **Key characteristics:** puzzle dominance; grid-adjacent controls; familiar
 icons; honest, non-color feedback; reversible edits; preserved progress.
 
-See [README.md](README.md) for gameplay/build details, [PRIVACY.md](PRIVACY.md)
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for implementation and verification, [PRIVACY.md](PRIVACY.md)
 for local storage, and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for licenses.
 AI-generated code and artwork remain disclosed in Settings and the README.
 
@@ -202,6 +202,7 @@ an arbitrary rule for every component.
 | Close | X, borderless | Close this surface; do not imply deleting its data. |
 | Menu / Settings | Hamburger / gear | Distinguish navigation from gameplay tools. |
 | Undo | Curved-back arrow | Undo last real move; visibly and semantically disabled when empty. |
+| Redo | Curved-forward arrow | Restore the most recently undone move; visibly and semantically disabled when empty. |
 | Erase | Eraser icon | Remove input from the targeted cell/selection, not the whole board. Takuzu Erase arms repeated local erasure. |
 | Clear / Reset | Explicit Clear or Reset text | Synonyms: remove all player inputs from the current board while preserving original givens/clues. Confirm destructive progress removal; do not generate a different puzzle. |
 | Delete letter | Backspace icon | Delete draft input, not a submitted guess or saved day. |
@@ -219,6 +220,19 @@ single-cell Erase. A local eraser must not be labeled Clear or Reset. These are
 design requirements, not a claim that a whole-board Clear/Reset feature exists.
 
 ### Input, notes and Undo
+
+Undo and Redo move one committed step between the two stacks; a new real edit
+clears the redo branch. Selection, no-ops and timer checkpoints do not.
+Pair the controls in a stable row and mirror them in existing large controls
+where applicable. Do not add history to submitted Daily Word guesses or reveal
+information by adding Undo to Minesweeper.
+
+On sharing-enabled builds, **Shared puzzles** is below the game list on Home.
+The separate page has a labeled single-line **Puzzle link** field and one
+primary **Launch puzzle** action. Accept the current build's URL with or without
+the scheme, keep invalid input for correction, and let Back return to Home.
+Manual entry makes non-tappable links usable without reading the clipboard
+automatically. Do not add controls to the fitted board for this entry flow.
 
 **Mode menus follow Sudoku's submenu style.** Hub -> named mode menu ->
 Resume/current-board view or clearly labeled new-puzzle choices. Use the same
@@ -259,7 +273,8 @@ own configuration independently, including legacy saves and Undo.
 **Binary inputs use tap/hold.** Where a genuine default/secondary input pair
 exists, a short press invokes the default and press-and-hold invokes the
 secondary. A recognized hold consumes release: never perform both operations.
-Cancel pending input on movement out of the target, multitouch, focus loss,
+Movement beyond touch slop within the same target cancels the hold but
+preserves the tap. Cancel pending input on movement out of the target, multitouch, focus loss,
 detach or lifecycle interruption. An already committed hold is a real edit with
 the mode's normal save/Undo semantics; cancellation does not silently undo it.
 Keep explicit tools and keyboard/accessibility actions so holding is never the
@@ -510,7 +525,7 @@ inspection; full assistive-technology traversal remains unverified.
 | --- | --- | --- |
 | Sudoku | Full-fit grid/tools/ordered bank; selected digit tap-entry/hold-note; Back/menu/Undo and actual eraser vectors; exact notes/history; distinct duplicate rejection; motion and optional large controls. | Fitting can reduce targets and effective text size below accessible recommendations; full screen-reader traversal is unverified. |
 | Daily Word | Full-fit grid-adjacent equal-key keyboard; right-side actions; quiet chrome; duplicate-aware non-color scoring; focused Enter; feedback shares the timer slot without reflow. | Compact letter targets remain narrow; optional large controls retained. Effective enlarged text can be reduced to fit. |
-| Takuzu | Full-fit tap 0 / hold 1 default, repeat-to-clear and explicit digit/eraser tools; adjacent bank/Undo; 6x6/8x8; underline/digits/error reasons; valid completion in stable heading. | 8x8/enlarged layouts intentionally scale down rather than pan; not a 48dp guarantee. Full nonvisual traversal is unverified. |
+| Takuzu | Full-fit tap 0 / hold 1 default, repeat-to-clear and explicit digit/eraser tools; adjacent bank and paired history actions; 6x6/8x8; underline/digits/error reasons; valid completion in stable heading. | 8x8/enlarged layouts intentionally scale down rather than pan; not a 48dp guarantee. Full nonvisual traversal is unverified. |
 | Nonograms | Centered full-fit board and measured clues; submenu sizes 5x5/8x8/10x10 with procedural unique generation; distinct filled/cross/unknown; quiet red/dashed clue errors; Undo, timer, completion and focusable reasons; legacy 5x5 saves retained. | Larger boards scale targets and effective text down. Sizes are not certified technique ratings. Line errors do not identify a particular wrong cell or every global impossibility; hidden-solution mistakes are not checked. |
 | Futoshiki | Number/eraser bank separated from the complete inequality grid by a fixed 16dp composition gap (below in portrait, beside in landscape), scaled with the full-fit layout; underlined selected target; immutable givens; measured scalable inequality gutters; duplicate/inequality reasons and ! cues; persistent Undo and prominent completion. | Feedback checks entered duplicates and inequalities, not every globally unsatisfiable partial square. |
 | Minesweeper | Full-fit reveal/hold-flag plus adjacent explicit flag toggle/count and icon New; covered/revealed fills differ; submenu offers ten/fourteen mines; first neighborhood safe; density persists; red/non-color loss is fixed in place; paint-only reveal/flag/loss motion; no information-reversing Undo. | Later guesses may be necessary at either density. Selected fill/outline and accessible state identify Flag versus Reveal; disabled motion leaves the same steady result. |

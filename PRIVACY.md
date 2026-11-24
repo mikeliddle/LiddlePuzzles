@@ -11,7 +11,7 @@ usage data, device identifiers, or crash reports to the developer or any
 third party. It has no accounts, advertising, analytics, network permission,
 or internet-connected features.
 
-The app stores your current puzzle, entries, notes, undo history, active solve
+The app stores your current puzzle, entries, notes, move history, active solve
 time, personal-best times, and appearance/gameplay preferences locally in
 app-private storage. These are used only to provide the game on your device.
 Daily Word also stores each played local calendar date, submitted guesses,
@@ -22,16 +22,22 @@ Takuzu, Nonograms, Futoshiki, Minesweeper, Numberlink and Slitherlink each store
 their own generated puzzle, progress, and active-play elapsed time in separate private files. Minesweeper
 also saves its local random seed and revealed/flagged squares; the path games save
 drawn edges. Switching games does not replace another game's progress.
-Takuzu, Nonograms, Futoshiki, Numberlink and Slitherlink also keep up to 500 prior
-entry/edge states in the same private save so Undo remains available after restarts.
+Takuzu, Nonograms, Futoshiki, Numberlink and Slitherlink also keep up to 500
+entry/edge states in the same private save so move history survives restarts.
 The app disables Android cloud backup. Some devices may apply their own
 device-transfer behavior; the app itself does not upload or synchronize data.
 
 New Sudoku puzzles are generated locally. There is no puzzle-rating, curated
-collection or import/export feature. Older installations may retain private
+collection or progress import/export feature. Older installations may retain private
 collection and classification files; this version leaves them untouched and
 does not read, write or use them. A previously imported active puzzle remains
 resumable from the ordinary current-game save.
+
+Where puzzle sharing is available, choosing Share hands only the puzzle's
+starting definition to the Android Sharesheet, not your moves, notes, answers,
+history or solve time. The app you choose handles sending the link under its
+own privacy policy. A recipient's shared-puzzle progress is stored separately
+on their device.
 
 Clearing app storage or uninstalling removes the locally stored app data.
 Installing a compatible update with the same signing certificate preserves it.

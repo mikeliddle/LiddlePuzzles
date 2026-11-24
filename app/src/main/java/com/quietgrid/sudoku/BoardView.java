@@ -341,9 +341,9 @@ public final class BoardView extends View {
                 return true;
             case MotionEvent.ACTION_MOVE:
                 if (event.getPointerCount() != 1 || event.getPointerId(0) != pressedPointer
-                        || cellAt(event.getX(), event.getY()) != pressedCell
-                        || Math.hypot(event.getX() - pressedX, event.getY() - pressedY)
-                        > android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop()) cancelPress();
+                        || cellAt(event.getX(), event.getY()) != pressedCell) cancelPress();
+                else if (Math.hypot(event.getX() - pressedX, event.getY() - pressedY)
+                        > android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop()) removeCallbacks(hold);
                 return true;
             case MotionEvent.ACTION_UP:
                 if (!canceledPress && !held && pressedCell >= 0 && pressedCell == cellAt(event.getX(), event.getY())) {

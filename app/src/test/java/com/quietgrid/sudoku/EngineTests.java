@@ -24,6 +24,7 @@ public final class EngineTests {
         persistence();
         importedSaveCompatibility();
         committedCopyIsolation();
+        redoHistory();
         SharingTests.run();
         SaveTests.run();
         activePlayTime();
@@ -51,6 +52,32 @@ public final class EngineTests {
         game.undo();
         check(retry.undo() && retry.values[0] == 2 && retry.values[1] == 0,
                 "Copies preserve exact earlier steps even when source history changes");
+    }
+
+    private static void redoHistory() throws Exception {
+        Game game = blank();
+        game.selected = 0;
+        check(game.enter(2), "First real move");
+        game.setAutoNotes(true);
+        check(game.undo() && !game.autoNotes && game.undo() && game.values[0] == 0,
+                "Undo pushes cell and auto-note state in order");
+        game.selected = 2;
+        check(!game.clear() && game.canRedo(), "Selection and a no-op do not invalidate Redo");
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        game.write(new DataOutputStream(bytes));
+        Game reopened = Game.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        check(!reopened.canUndo() && reopened.redo() && reopened.values[0] == 2 && !reopened.autoNotes,
+                "Redo-only history survives reopening in LIFO order");
+        check(reopened.redo() && reopened.autoNotes && reopened.notes[0] == Sudoku.ALL && !reopened.canRedo(),
+                "Redo restores exact auto-note state and consumes the last step");
+        check(game.canRedo() && game.values[0] == 0, "Restoring from a save does not mutate the source");
+        reopened.undo();
+        Game beforeBranch = reopened.copy();
+        reopened.selected = 1;
+        check(reopened.enter(3) && !reopened.canRedo(), "A fresh edit drops the old branch");
+        check(beforeBranch.redo() && beforeBranch.autoNotes, "Branching cannot modify the committed rollback copy");
+        check(reopened.undo() && reopened.redo() && reopened.values[1] == 3 && !reopened.autoNotes
+                && !reopened.canRedo(), "Later Undo only pushes fresh branch moves");
     }
 
     private static void heldNotes() throws Exception {

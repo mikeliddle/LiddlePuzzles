@@ -9,6 +9,7 @@ import java.util.Deque;
 
 /** Note intent is independent of temporary constraints; no peer edit destroys it. */
 public final class Game {
+    private static final int MAX_HISTORY = 500;
     public final int[] clues, solution;
     public final int[] values = new int[81], notes = new int[81];
     public final Sudoku.Difficulty difficulty;
@@ -17,6 +18,7 @@ public final class Game {
     public int armedDigit;
     public long elapsedMillis;
     private final Deque<Snapshot> history = new ArrayDeque<>();
+    private final Deque<Snapshot> redo = new ArrayDeque<>();
 
     public Game(Sudoku.Puzzle puzzle) {
         clues = puzzle.clues.clone(); solution = puzzle.solution.clone();
@@ -29,8 +31,9 @@ public final class Game {
         System.arraycopy(notes, 0, result.notes, 0, 81);
         result.autoNotes = autoNotes; result.showMistakes = showMistakes; result.noteMode = noteMode;
         result.selected = selected; result.armedDigit = armedDigit; result.elapsedMillis = elapsedMillis;
-        for (Snapshot snapshot : history)
-            result.history.addLast(new Snapshot(snapshot.values.clone(), snapshot.notes.clone(), snapshot.autoNotes, snapshot.selected));
+        // Snapshot arrays are private and never mutated after capture or decoding.
+        result.history.addAll(history);
+        result.redo.addAll(redo);
         return result;
     }
 
@@ -144,9 +147,14 @@ public final class Game {
     }
 
     public boolean canUndo() { return !history.isEmpty(); }
-    public boolean undo() {
-        if (history.isEmpty()) return false;
-        Snapshot s = history.removeLast();
+    public boolean canRedo() { return !redo.isEmpty(); }
+    public boolean undo() { return restore(history, redo); }
+    public boolean redo() { return restore(redo, history); }
+
+    private boolean restore(Deque<Snapshot> from, Deque<Snapshot> to) {
+        if (from.isEmpty()) return false;
+        to.addLast(snapshot());
+        Snapshot s = from.removeLast();
         System.arraycopy(s.values, 0, values, 0, 81);
         System.arraycopy(s.notes, 0, notes, 0, 81);
         autoNotes = s.autoNotes; selected = s.selected;
@@ -184,8 +192,13 @@ public final class Game {
     public boolean won() { return Arrays.equals(values, solution); }
 
     private void checkpoint() {
-        if (history.size() >= 500) history.removeFirst();
-        history.addLast(new Snapshot(values.clone(), notes.clone(), autoNotes, armedDigit == 0 ? selected : -1));
+        redo.clear();
+        if (history.size() >= MAX_HISTORY) history.removeFirst();
+        history.addLast(snapshot());
+    }
+
+    private Snapshot snapshot() {
+        return new Snapshot(values.clone(), notes.clone(), autoNotes, armedDigit == 0 ? selected : -1);
     }
 
     private static final class Snapshot {
@@ -198,13 +211,18 @@ public final class Game {
     }
 
     public void write(DataOutputStream out) throws IOException {
-        out.writeInt(0x53554433);
+        out.writeInt(canRedo() ? 0x53554434 : 0x53554433);
         out.writeUTF(difficulty.name());
         writeArray(out, clues); writeArray(out, solution); writeArray(out, values); writeArray(out, notes);
         out.writeBoolean(autoNotes); out.writeBoolean(showMistakes); out.writeBoolean(noteMode);
         out.writeInt(selected); out.writeInt(armedDigit); out.writeLong(elapsedMillis);
-        out.writeInt(history.size());
-        for (Snapshot s : history) {
+        writeHistory(out, history);
+        if (canRedo()) writeHistory(out, redo);
+    }
+
+    private static void writeHistory(DataOutputStream out, Deque<Snapshot> stack) throws IOException {
+        out.writeInt(stack.size());
+        for (Snapshot s : stack) {
             writeArray(out, s.values); writeArray(out, s.notes);
             out.writeBoolean(s.autoNotes); out.writeInt(s.selected);
         }
@@ -212,7 +230,8 @@ public final class Game {
 
     public static Game read(DataInputStream in) throws IOException {
         int version = in.readInt();
-        if (version != 0x53554432 && version != 0x53554433) throw new IOException("Unrecognized saved-game format");
+        if (version != 0x53554432 && version != 0x53554433 && version != 0x53554434)
+            throw new IOException("Unrecognized saved-game format");
         Sudoku.Difficulty difficulty;
         try { difficulty = Sudoku.Difficulty.valueOf(in.readUTF()); }
         catch (IllegalArgumentException ex) { throw new IOException("Invalid saved difficulty", ex); }
@@ -226,24 +245,30 @@ public final class Game {
         System.arraycopy(readArray(in, Sudoku.ALL), 0, game.notes, 0, 81);
         game.autoNotes = in.readBoolean(); game.showMistakes = in.readBoolean(); game.noteMode = in.readBoolean();
         game.selected = in.readInt();
-        game.armedDigit = version == 0x53554433 ? in.readInt() : 0;
+        game.armedDigit = version == 0x53554432 ? 0 : in.readInt();
         game.elapsedMillis = in.readLong();
         if (game.selected < -1 || game.selected > 80 || game.armedDigit < 0 || game.armedDigit > 9
                 || game.elapsedMillis < 0) throw new IOException("Invalid saved state");
         validateValues(game.values, clues);
+        readHistory(in, clues, game.history, MAX_HISTORY);
+        if (version == 0x53554434) readHistory(in, clues, game.redo, MAX_HISTORY - game.history.size());
+        game.normalizeArmedDigit();
+        if (game.armedDigit != 0) game.selected = -1;
+        return game;
+    }
+
+    private static void readHistory(DataInputStream in, int[] clues, Deque<Snapshot> stack, int capacity)
+            throws IOException {
         int count = in.readInt();
-        if (count < 0 || count > 500) throw new IOException("Invalid undo history");
+        if (count < 0 || count > capacity) throw new IOException("Invalid move history");
         for (int i = 0; i < count; i++) {
             int[] v = readArray(in, 9), n = readArray(in, Sudoku.ALL);
             boolean auto = in.readBoolean();
             int selection = in.readInt();
             validateValues(v, clues);
             if (selection < -1 || selection > 80) throw new IOException("Invalid saved selection");
-            game.history.addLast(new Snapshot(v, n, auto, selection));
+            stack.addLast(new Snapshot(v, n, auto, selection));
         }
-        game.normalizeArmedDigit();
-        if (game.armedDigit != 0) game.selected = -1;
-        return game;
     }
 
     private static void validateValues(int[] values, int[] clues) throws IOException {

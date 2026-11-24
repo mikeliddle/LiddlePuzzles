@@ -6,16 +6,17 @@ import android.content.Intent;
 import android.os.Bundle;
 import com.quietgrid.sudoku.puzzles.PuzzleShare;
 
-/** Exported only by the validation manifest; puzzle validation belongs to each background loader. */
+/** Routes links for this build; puzzle validation belongs to each background loader. */
 public final class ShareActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if (!PuzzleSharing.shared(getIntent())) { finish(); return; }
         try {
-            String link = getIntent().getDataString();
+            String link = PuzzleSharing.incoming(getIntent());
             String kind = LocalShareLink.kind(link);
             Intent open = new Intent(Intent.ACTION_VIEW, getIntent().getData());
-            if (WordShare.KIND.equals(kind)) open.setClass(this, DailyWordActivity.class);
+            if ("sudoku".equals(kind)) open.setClass(this, MainActivity.class);
+            else if (WordShare.KIND.equals(kind)) open.setClass(this, DailyWordActivity.class);
             else open.setClass(this, PuzzleActivity.class).putExtra(PuzzleActivity.MODE, PuzzleShare.mode(link).name());
             startActivity(open);
             finish();

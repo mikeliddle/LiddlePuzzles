@@ -67,10 +67,17 @@ public final class CiSmokeTests extends InstrumentationTestCase {
                 PuzzleMenuActivity.class).putExtra(PuzzleActivity.MODE, Mode.NONOGRAM.name())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         resume();
-        tap(awaitTag(game, "cell-0"));
+        View square = awaitTag(game, "cell-0");
+        for (int action : new int[]{MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL}) {
+            squareGesture(square, action);
+            assertFalse("Drag off and back or cancel must not edit", read().canUndo());
+        }
+        twoFingerGesture(square, awaitTag(game, "cell-1"));
+        assertFalse("Two fingers on separate cells must not edit", read().canUndo());
+        squareGesture(square, MotionEvent.ACTION_UP);
         PuzzleProgress edited = read();
-        assertEquals("Native tap fills the square", 1, ((Nonogram) edited.game).values[0]);
-        assertTrue("Input records Undo", edited.canUndo());
+        assertEquals("Same-square drift beyond slop cancels hold but preserves the tap", 1, ((Nonogram) edited.game).values[0]);
+        assertEquals("Exactly one edit", 1, edited.undoCount());
 
         View back = findDescription(game.getWindow().getDecorView(), "Back to " + Mode.NONOGRAM.title + " menu");
         assertNotNull("Game offers menu navigation", back);
@@ -86,7 +93,70 @@ public final class CiSmokeTests extends InstrumentationTestCase {
         View undo = findDescription(game.getWindow().getDecorView(), "Undo last move");
         assertNotNull(undo);
         click(undo);
-        assertTrue("Undo restores the generated board", Arrays.equals(generated.values, ((Nonogram) read().game).values));
+        PuzzleProgress undone = read();
+        assertTrue("Undo restores the generated board", Arrays.equals(generated.values, ((Nonogram) undone.game).values));
+        assertTrue(undone.canRedo());
+        click(findDescription(game.getWindow().getDecorView(), "Back to " + Mode.NONOGRAM.title + " menu"));
+        game = null;
+        resume();
+        View redo = findDescription(game.getWindow().getDecorView(), "Redo last move");
+        assertNotNull(redo);
+        getInstrumentation().runOnMainSync(() -> assertTrue("Redo is enabled after reopen", redo.isEnabled()));
+        click(redo);
+        assertEquals(1, ((Nonogram) read().game).values[0]);
+        getInstrumentation().runOnMainSync(() -> assertFalse("No later move to restore", redo.isEnabled()));
+        click(findDescription(game.getWindow().getDecorView(), "Undo last move"));
+        assertTrue(read().canRedo());
+        tap(awaitTag(game, "cell-1"));
+        assertFalse("A fresh edit discards the old future", read().canRedo());
+    }
+
+    private void squareGesture(View square, int variation) {
+        long start = SystemClock.uptimeMillis();
+        getInstrumentation().runOnMainSync(() -> {
+            float x = 1, y = square.getHeight() / 2f;
+            float drift = x + android.view.ViewConfiguration.get(square.getContext()).getScaledTouchSlop() + 1;
+            assertTrue("Both sampled points are inside the same square", drift < square.getWidth());
+            sendLocal(square, start, MotionEvent.ACTION_DOWN, x, y);
+            if (variation == MotionEvent.ACTION_UP) sendLocal(square, start, MotionEvent.ACTION_MOVE, drift, y);
+            else if (variation == MotionEvent.ACTION_MOVE) {
+                sendLocal(square, start, MotionEvent.ACTION_MOVE, -1, y);
+                sendLocal(square, start, MotionEvent.ACTION_MOVE, x, y);
+            } else sendLocal(square, start, MotionEvent.ACTION_CANCEL, x, y);
+        });
+        if (variation == MotionEvent.ACTION_UP) SystemClock.sleep(BinaryPress.timeout(square.getContext()) + 100);
+        getInstrumentation().runOnMainSync(() -> sendLocal(square, start, MotionEvent.ACTION_UP, 1, square.getHeight() / 2f));
+        getInstrumentation().waitForIdleSync();
+    }
+
+    private void twoFingerGesture(View first, View second) {
+        getInstrumentation().runOnMainSync(() -> {
+            long start = SystemClock.uptimeMillis();
+            MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[2];
+            MotionEvent.PointerCoords[] coords = new MotionEvent.PointerCoords[2];
+            View[] cells = {first, second};
+            for (int i = 0; i < cells.length; i++) {
+                Rect bounds = new Rect();
+                assertTrue(cells[i].getGlobalVisibleRect(bounds));
+                properties[i] = new MotionEvent.PointerProperties(); properties[i].id = i;
+                properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+                coords[i] = new MotionEvent.PointerCoords(); coords[i].x = bounds.centerX(); coords[i].y = bounds.centerY();
+            }
+            int index = 1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT;
+            for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN | index,
+                    MotionEvent.ACTION_POINTER_UP | index, MotionEvent.ACTION_UP}) {
+                int count = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_UP ? 1 : 2;
+                MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, count,
+                        properties, coords, 0, 0, 1, 1, 0, 0, android.view.InputDevice.SOURCE_TOUCHSCREEN, 0);
+                try { assertTrue(game.dispatchTouchEvent(event)); } finally { event.recycle(); }
+            }
+        });
+        getInstrumentation().waitForIdleSync();
+    }
+
+    private static void sendLocal(View view, long start, int action, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x, y, 0);
+        try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
     }
 
     private void resume() {

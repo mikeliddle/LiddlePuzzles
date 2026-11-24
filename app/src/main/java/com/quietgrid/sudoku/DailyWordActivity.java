@@ -94,8 +94,10 @@ public final class DailyWordActivity extends Activity {
         palette = new MainActivity.Palette(dark, color >= 0 && color < MainActivity.COLOR_NAMES.length ? color : 3);
         shared = PuzzleSharing.shared(getIntent());
         if (shared) {
-            sharedLink = getIntent().getDataString();
-            try { sharedKey = LocalShareLink.saveKey(sharedLink, WordShare.KIND); }
+            try {
+                sharedLink = PuzzleSharing.incoming(getIntent());
+                sharedKey = LocalShareLink.saveKey(sharedLink, WordShare.KIND);
+            }
             catch (IllegalArgumentException ex) { Log.e("DailyWord", "Invalid shared link", ex); sharedError = ex.getMessage(); }
         }
         puzzleSave = PuzzleSave.forFile(new File(getFilesDir(), "daily-word-v1.bin"));
@@ -274,6 +276,7 @@ public final class DailyWordActivity extends Activity {
         title.setAutoSizeTextTypeUniformWithConfiguration(10, 26, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
         heading.addView(title, new LinearLayout.LayoutParams(0, ScreenChrome.titleHeight(title), 1));
         ImageButton large = iconButton("Large controls", R.drawable.ic_large_controls);
+        large.setTooltipText("Large controls: open a larger keyboard");
         large.setOnClickListener(v -> openLargeControls());
         heading.addView(large, new LinearLayout.LayoutParams(dp(48), dp(48)));
         ImageButton settings = iconButton("Settings", R.drawable.ic_settings);

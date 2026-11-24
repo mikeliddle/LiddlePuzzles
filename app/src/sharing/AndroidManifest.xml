@@ -6,12 +6,13 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="liddlepuzzles-local" android:host="takuzu" />
-                <data android:scheme="liddlepuzzles-local" android:host="nonogram" />
-                <data android:scheme="liddlepuzzles-local" android:host="futoshiki" />
-                <data android:scheme="liddlepuzzles-local" android:host="numberlink" />
-                <data android:scheme="liddlepuzzles-local" android:host="slitherlink" />
-                <data android:scheme="liddlepuzzles-local" android:host="daily-word" />
+                <data android:scheme="${puzzleLinkScheme}" android:pathPrefix="/v1/" />
+                <data android:host="takuzu" />
+                <data android:host="nonogram" />
+                <data android:host="futoshiki" />
+                <data android:host="numberlink" />
+                <data android:host="slitherlink" />
+                <data android:host="daily-word" />
             </intent-filter>
         </activity>
         <activity android:name="com.quietgrid.sudoku.MainActivity" android:exported="true">
@@ -19,7 +20,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="liddlepuzzles-local" android:host="sudoku" />
+                <data android:scheme="${puzzleLinkScheme}" android:host="sudoku" android:pathPrefix="/v1/" />
             </intent-filter>
         </activity>
     </application>

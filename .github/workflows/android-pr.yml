@@ -2,6 +2,8 @@ name: Android PR smoke
 
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,13 +18,37 @@ defaults:
     shell: bash
 
 jobs:
+  readme:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Keep the download prominent and developer detail out of README
+        run: |
+          head -n 15 README.md | grep -F 'https://github.com/mikeliddle/LiddlePuzzles/releases/latest' > /dev/null
+          if grep -Eq '^```|^[#]+ .*([Bb]uild|[Tt]esting|[Ii]nstallation|[Dd]evelopment)' README.md; then
+            echo 'Move setup, build, and testing instructions to docs/DEVELOPMENT.md.' >&2
+            exit 1
+          fi
   instrumentation:
+    name: Android API ${{ matrix.api }} smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 29
+            revision: '13(\.0)*'
+          - api: 35
+            revision: '9(\.0)*'
     env:
       SUDOKU_SIGNING_DIR: ${{ github.workspace }}/.ci-no-release-key
       TARGET_PACKAGE: fyi.mllab.puzzle.validation
       ANDROID_SERIAL: emulator-5554
+      SYSTEM_IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
+      SYSTEM_IMAGE_REVISION: ${{ matrix.revision }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -31,6 +57,12 @@ jobs:
         with:
           distribution: microsoft
           java-version: '17'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/verification-metadata.xml') }}
       - name: Check wrapper and prepare hosted Android tools
         run: |
           echo '81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f  gradle/wrapper/gradle-wrapper.jar' | sha256sum --check --strict
@@ -43,7 +75,7 @@ jobs:
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             --channel=0 \
             "platforms;android-36" "build-tools;36.0.0" "platform-tools" \
-            "emulator" "system-images;android-35;google_apis;x86_64" < <(yes)
+            "emulator" "$SYSTEM_IMAGE" < <(yes)
           assert_revision() {
             local properties="$ANDROID_HOME/$1/source.properties"
             if ! grep -Eq "^Pkg.Revision[[:space:]]*=[[:space:]]*$2[[:space:]]*$" "$properties"; then
@@ -57,13 +89,13 @@ jobs:
           assert_revision build-tools/36.0.0 '36\.0\.0'
           assert_revision platform-tools '37\.0\.3'
           assert_revision emulator '37\.3\.10'
-          assert_revision system-images/android-35/google_apis/x86_64 '9(\.0)*'
+          assert_revision "system-images/android-${{ matrix.api }}/google_apis/x86_64" "$SYSTEM_IMAGE_REVISION"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
       - name: Compile validation app and instrumentation
         run: |
           bash ./gradlew --no-daemon --console=plain --dependency-verification strict \
-            -PunsignedRelease=true engineTest :app:assembleValidation :app:assembleValidationAndroidTest :app:lintValidation
+            -PunsignedRelease=true engineTest :app:assembleValidation :app:assembleValidationAndroidTest :app:lintValidation :app:assembleRelease
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           "$TOOLS/aapt2" dump badging app/build/outputs/apk/validation/app-validation.apk > validation-manifest.txt
           grep -Eq "^package: name='fyi\.mllab\.puzzle\.validation' " validation-manifest.txt
@@ -71,6 +103,25 @@ jobs:
             echo 'Validation app must remain offline and permission-free.' >&2
             exit 1
           fi
+          "$TOOLS/aapt2" dump badging app/build/outputs/apk/release/app-release-unsigned.apk > release-manifest.txt
+          grep -Eq "^package: name='fyi\.mllab\.puzzle' " release-manifest.txt
+          if grep -Eq 'uses-permission|application-debuggable' release-manifest.txt; then exit 1; fi
+          for variant in validation release; do
+            if [[ "$variant" == validation ]]; then
+              apk=app/build/outputs/apk/validation/app-validation.apk
+              scheme=liddlepuzzles-local
+            else
+              apk=app/build/outputs/apk/release/app-release-unsigned.apk
+              scheme=liddlepuzzles
+            fi
+            "$TOOLS/aapt2" dump xmltree "$apk" --file AndroidManifest.xml > "$variant-routes.txt"
+            test "$(grep -c 'android:scheme(' "$variant-routes.txt")" -eq 2
+            test "$(grep -cF "=\"$scheme\"" "$variant-routes.txt")" -eq 2
+            test "$(grep -cF '="/v1/"' "$variant-routes.txt")" -eq 2
+            for mode in sudoku takuzu nonogram futoshiki numberlink slitherlink daily-word; do
+              grep -E "android:host.*=\"$mode\"" "$variant-routes.txt" > /dev/null
+            done
+          done
           "$TOOLS/aapt2" dump badging app/build/outputs/apk/androidTest/validation/app-validation-androidTest.apk > test-manifest.txt
           grep -Eq "^package: name='fyi\.mllab\.puzzle\.validation\.test' " test-manifest.txt
       - name: Boot an isolated headless emulator
@@ -78,7 +129,7 @@ jobs:
           test -c /dev/kvm
           sudo chmod 0666 /dev/kvm
           "$ANDROID_HOME/cmdline-tools/23.0/bin/avdmanager" create avd \
-            --force --name ci-smoke --package "system-images;android-35;google_apis;x86_64" --device pixel_2 <<< no
+            --force --name ci-smoke --package "$SYSTEM_IMAGE" --device pixel_2 <<< no
           emulator -avd ci-smoke -port 5554 -no-window -no-audio -no-boot-anim \
             -no-snapshot -wipe-data -gpu swiftshader -accel on > emulator.log 2>&1 &
           echo "EMULATOR_PID=$!" >> "$GITHUB_ENV"
@@ -112,7 +163,7 @@ jobs:
             if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_ABORTED|shortMsg=|Process crashed' "smoke-$repetition.txt"; then
               exit 1
             fi
-            grep -Eq '^OK \(25 tests\)' "smoke-$repetition.txt"
+            grep -Eq '^OK \(26 tests\)' "smoke-$repetition.txt"
           done
       - name: Stop the emulator
         if: always()

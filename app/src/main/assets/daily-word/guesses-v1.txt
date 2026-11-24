@@ -548,7 +548,6 @@ arret
 arris
 arrow
 arsed
-arses
 arsey
 arsis
 arson
@@ -1092,7 +1091,6 @@ bises
 bisks
 bisom
 bison
-bitch
 biter
 bites
 bitos
@@ -2445,7 +2443,6 @@ cumec
 cumin
 cundy
 cunei
-cunty
 cupel
 cupid
 cuppa
@@ -2757,7 +2754,6 @@ dicer
 dices
 dicey
 dicht
-dicks
 dicky
 dicot
 dicta
@@ -2778,7 +2774,6 @@ diked
 diker
 dikes
 dikey
-dildo
 dilli
 dills
 dilly
@@ -5420,7 +5415,6 @@ jinns
 jirds
 jirga
 jirre
-jisms
 jived
 jiver
 jives
@@ -8069,7 +8063,6 @@ pisco
 pises
 pisky
 pisos
-pissy
 piste
 pitas
 pitch
@@ -8239,8 +8232,6 @@ porge
 porgy
 porks
 porky
-porno
-porns
 porny
 porta
 ports
@@ -8485,7 +8476,6 @@ purty
 puses
 pushy
 pusle
-pussy
 putid
 puton
 putti
@@ -9676,7 +9666,6 @@ shirt
 shish
 shiso
 shist
-shite
 shiur
 shiva
 shive
@@ -9993,7 +9982,6 @@ slurp
 slurs
 sluse
 slush
-sluts
 slyer
 slyly
 slype
@@ -10369,7 +10357,6 @@ spugs
 spule
 spume
 spumy
-spunk
 spurn
 spurs
 spurt
@@ -11153,7 +11140,6 @@ tithe
 titis
 title
 titre
-titty
 titup
 tiyin
 tizzy
@@ -11483,7 +11469,6 @@ twain
 twals
 twang
 twank
-twats
 tways
 tweak
 tweed
@@ -12011,8 +11996,6 @@ waned
 wanes
 waney
 wangs
-wanks
-wanky
 wanle
 wanly
 wanna
@@ -12180,7 +12163,6 @@ whoof
 whoop
 whoot
 whops
-whore
 whorl
 whort
 whose

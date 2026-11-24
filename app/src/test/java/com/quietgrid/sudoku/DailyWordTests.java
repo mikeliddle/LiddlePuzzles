@@ -49,7 +49,7 @@ public final class DailyWordTests {
     private static void schedule() throws Exception {
         for (String[] expected : new String[][]{
                 {"answers-v1.txt", "c74528789b30d50ecc6a9d04fb8cfa05ebe160a79fa5dce80c9b111690b7f7f6"},
-                {"guesses-v1.txt", "94fc55ba7e1c819d0afc96b31a49cb6415c47787d0baf37912000b8b8939bb24"}}) {
+                {"guesses-v1.txt", "570b5ed0f3548919676345e6329ff9e221342c2fe8b3e8c859f57c5975a19cbb"}}) {
             check(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(Files.readAllBytes(DATA.resolve(expected[0])))).equals(expected[1]),
                     "Pinned Daily Word assets: " + expected[0]);
@@ -163,7 +163,9 @@ public final class DailyWordTests {
     }
 
     private static void retiredGuesses() throws Exception {
-        List<String> retired = List.of("cunts", "fucks", "shits");
+        List<String> retired = List.of(
+                "arses", "bitch", "cunts", "cunty", "dicks", "dildo", "fucks", "jisms", "pissy", "porno", "porns",
+                "pussy", "shite", "shits", "sluts", "spunk", "titty", "twats", "wanks", "wanky", "whore");
         DailyWord game = fresh();
         DailyWord.Day day = game.day(DailyWord.EPOCH);
         for (String word : retired) {
@@ -177,19 +179,24 @@ public final class DailyWordTests {
         DailyWord old = new DailyWord(new StringReader(Files.readString(DATA.resolve("guesses-v1.txt"))
                 + "\n" + String.join("\n", retired)), new StringReader(Files.readString(DATA.resolve("answers-v1.txt"))));
         DailyWord.Day oldDay = old.day(day.date);
-        for (String word : retired) {
-            type(old, oldDay, word);
-            check(old.submit(oldDay) == null, "Old dictionary accepted the retired word");
-        }
         type(old, oldDay, retired.get(0));
+        check(old.submit(oldDay) == null, "Old dictionary accepted the first retired word");
+        type(old, oldDay, retired.get(1));
         oldDay.setElapsed(12345);
+        byte[] sharedSave = bytes(old);
+        DailyWord shared = fresh();
+        shared.readShared(new DataInputStream(new ByteArrayInputStream(sharedSave)), day.date);
+        check(Arrays.equals(sharedSave, bytes(shared)), "Shared-date save preserves retired guess and draft");
+
+        for (int i = 1; i < retired.size(); i++) {
+            DailyWord.Day next = old.day(day.date.plusDays(i));
+            type(old, next, retired.get(i));
+            check(old.submit(next) == null, "Old dictionary accepted the retired word");
+        }
         byte[] saved = bytes(old);
         game.read(new DataInputStream(new ByteArrayInputStream(saved)));
         check(Arrays.equals(saved, bytes(game)), "Upgrade preserves submitted guesses, draft and elapsed time");
         check(WordShare.link(game, day.date).equals(WordShare.link(old, day.date)), "Shared link stays identical");
-        DailyWord shared = fresh();
-        shared.readShared(new DataInputStream(new ByteArrayInputStream(saved)), day.date);
-        check(Arrays.equals(saved, bytes(shared)), "Shared-date save preserves retired guesses and draft too");
     }
 
     private static byte[] bytes(DailyWord game) throws IOException {

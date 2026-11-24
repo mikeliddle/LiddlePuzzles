@@ -42,15 +42,14 @@ Google Play requires content accessible to children to be appropriate for
 them. Do not submit the current artifact as Families-ready.
 `answers-v1.txt` still contains the same 619 scheduled answers in the same
 order; the answer is chosen by date and revealed after a loss. The separate
-`guesses-v1.txt` now contains 12,650 entries. Only the three probes `cunts`,
-`fucks`, and `shits` were removed from new submissions; none was a scheduled
-answer. The schedule fingerprint and shared-date links are unchanged.
+`guesses-v1.txt` now contains 12,632 entries. The original three probes and
+18 further identified terms were removed from new submissions; none was a
+scheduled answer. The schedule fingerprint and shared-date links are unchanged.
 
-Other strong entries, including `cunty` and `twats`, remain accepted. The
-board and accessible rows still display submitted guesses, including the
-three retired words in older saves, and unsubmitted typed drafts can still
-show those words. The cleanup does not censor text or rewrite player state,
-and is not a full review of either list.
+The board and accessible rows still display submitted guesses, including
+retired words in older saves, and unsubmitted typed drafts can still show
+them. The cleanup does not censor text or rewrite player state. Neither
+list has had a full review; other strong terms may remain accepted.
 
 Before submitting for ages 9–12:
 

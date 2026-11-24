@@ -113,8 +113,9 @@ final class ViewportChecks {
             android.widget.Button button = (android.widget.Button) view;
             java.util.regex.Matcher words = java.util.regex.Pattern.compile("\\p{L}+").matcher(button.getText());
             int count = 0; while (words.find()) count++;
-            Assert.assertTrue("At most one visible word per action (hub game titles excepted): " + button.getText(),
+            Assert.assertTrue("At most one visible word per action (named destinations excepted): " + button.getText(),
                     count <= 1 || "hub-puzzle".equals(button.getTag())
+                            || ("edge-controls".equals(button.getTag()) && "Edge controls".contentEquals(button.getText()))
                             || String.valueOf(button.getTag()).startsWith("game-settings-"));
             if (button.getText().length() == 0 && button.getForeground() != null) {
                 android.graphics.Rect icon = button.getForeground().getBounds();

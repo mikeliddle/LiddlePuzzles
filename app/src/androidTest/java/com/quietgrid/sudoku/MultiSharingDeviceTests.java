@@ -56,6 +56,7 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         try {
             NativeSaveAwaiter.await(instrumentation, home);
+            settings = instrumentation.getTargetContext().getSharedPreferences("settings", 0).getAll();
             instrumentation.runOnMainSync(() -> {
                 View decor = home.getWindow().getDecorView();
                 assertTrue(decor.findViewWithTag("shared-puzzles").performClick());
@@ -79,9 +80,14 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
                     assertNotNull("Manual entry opens the shared puzzle", activity);
                     NativeSaveAwaiter.await(instrumentation, activity);
                     assertNotNull(field("game"));
-                    close();
+                    Activity recipient = activity;
+                    instrumentation.runOnMainSync(recipient::onBackPressed);
+                    awaitWindow(home);
+                    SaveQueue.forPath(sharedFile(link, Mode.NONOGRAM).getAbsolutePath()).flushBlocking();
+                    activity = null;
                 } finally { instrumentation.removeMonitor(monitor); }
             }
+
             instrumentation.runOnMainSync(() -> {
                 home.onBackPressed();
                 assertNotNull(home.getWindow().getDecorView().findViewWithTag("shared-puzzles"));
@@ -219,6 +225,17 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
     }
 
     private File file(String name) { return new File(getInstrumentation().getTargetContext().getFilesDir(), name); }
+    private void awaitWindow(Activity owner) {
+        boolean[] focused = {false};
+        long deadline = android.os.SystemClock.uptimeMillis() + 10000;
+        do {
+            getInstrumentation().runOnMainSync(() -> focused[0] = owner.hasWindowFocus());
+            if (focused[0]) return;
+            android.os.SystemClock.sleep(25);
+        } while (android.os.SystemClock.uptimeMillis() < deadline);
+        fail("Shared puzzles must regain window focus after closing the recipient");
+    }
+
     private File sharedFile(String link, Mode mode) {
         return file("shared-" + PuzzleShare.kind(mode) + "-" + LocalShareLink.saveKey(link, PuzzleShare.kind(mode)) + ".bin");
     }

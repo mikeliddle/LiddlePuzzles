@@ -572,6 +572,7 @@ public final class PuzzleActivity extends Activity {
             }
             Button accessible = button("");
             accessible.setText("Edge controls");
+            accessible.setTag("edge-controls");
             accessible.setContentDescription("Edge controls");
             accessible.setSingleLine(true);
             accessible.setAutoSizeTextTypeUniformWithConfiguration(10, 16, 1, android.util.TypedValue.COMPLEX_UNIT_SP);

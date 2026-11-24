@@ -11,6 +11,7 @@ import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -862,7 +863,27 @@ public final class MainActivity extends Activity {
             entry.setOnClickListener(v -> { settingsGame = id; settingsFromGlobal = true; render(false); });
             addControl(content, entry, 56, 8);
         }
+        TextView about = text(getString(R.string.settings_about), 22, palette.ink);
+        about.setPadding(0, dp(4), 0, dp(8));
+        about.setAccessibilityHeading(true);
+        content.addView(about, new LinearLayout.LayoutParams(-1, -2));
+        addCopy(content, getString(R.string.settings_app_version, BuildConfig.VERSION_NAME), 16, palette.ink, 8);
+        Button releases = button(getString(R.string.settings_open_releases), false);
+        releases.setOnClickListener(v -> openReleases());
+        addControl(content, releases, 56, 8);
         addCopy(content, getString(R.string.ai_disclosure), 14, palette.muted, 0);
+    }
+
+    private void openReleases() {
+        Intent releases = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mikeliddle/LiddlePuzzles/releases"))
+                .addCategory(Intent.CATEGORY_BROWSABLE);
+        try {
+            startActivity(releases);
+        } catch (ActivityNotFoundException ex) {
+            new AlertDialog.Builder(this).setTitle(R.string.settings_releases_unavailable)
+                    .setMessage(R.string.settings_releases_no_browser)
+                    .setPositiveButton(android.R.string.ok, null).show();
+        }
     }
 
     private void changeResponsibleSetting(CompoundButton view, boolean enabled) {

@@ -2,6 +2,7 @@ package com.quietgrid.sudoku;
 
 import android.app.Activity;
 import android.app.Instrumentation;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
@@ -2027,6 +2028,57 @@ public final class DeviceTests extends InstrumentationTestCase {
     }
 
     private boolean globalFromPlay;
+    public void testGlobalAboutShowsInstalledVersionAndOpensReleases() throws Exception {
+        launch();
+        openGlobalSettings();
+        String version = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionName;
+        assertNotNull(findText(activity.getString(R.string.settings_app_version, version)));
+        View about = findText(activity.getString(R.string.settings_about));
+        assertNotNull(about);
+        assertTrue("About is a screen reader heading", about.isAccessibilityHeading());
+        String releaseLabel = activity.getString(R.string.settings_open_releases);
+        View releases = findText(releaseLabel);
+        assertNotNull(releases);
+        getInstrumentation().runOnMainSync(() ->
+                releases.requestRectangleOnScreen(new Rect(0, 0, releases.getWidth(), releases.getHeight()), true));
+        getInstrumentation().waitForIdleSync();
+        assertTrue(releases.getGlobalVisibleRect(new Rect()));
+        assertTrue(releases.getHeight() >= 48 * releases.getResources().getDisplayMetrics().density - 0.5f);
+
+        Intent[] outgoing = new Intent[1];
+        boolean[] noBrowser = {false};
+        Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {
+            @Override public Instrumentation.ActivityResult onStartActivity(Intent intent) {
+                if (!Intent.ACTION_VIEW.equals(intent.getAction())) return null;
+                outgoing[0] = intent;
+                if (noBrowser[0]) throw new ActivityNotFoundException();
+                return new Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null);
+            }
+        };
+        getInstrumentation().addMonitor(monitor);
+        try {
+            clickText(releaseLabel);
+            assertNotNull(outgoing[0]);
+            assertTrue(outgoing[0].hasCategory(Intent.CATEGORY_BROWSABLE));
+            assertEquals("https://github.com/mikeliddle/LiddlePuzzles/releases", outgoing[0].getDataString());
+            assertNull(outgoing[0].getComponent());
+
+            noBrowser[0] = true;
+            clickText(releaseLabel);
+            String error = activity.getString(R.string.settings_releases_no_browser);
+            AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
+            assertNotNull(root);
+            assertFalse("Missing browser shows recovery guidance", root.findAccessibilityNodeInfosByText(error).isEmpty());
+            getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            getInstrumentation().waitForIdleSync();
+            assertNotNull(findText(releaseLabel));
+        } finally {
+            getInstrumentation().removeMonitor(monitor);
+        }
+        closeGlobalSettings();
+        assertNotNull(findText("Difficulty"));
+    }
+
     private void openGlobalSettings() {
         globalFromPlay = findType(activity.getWindow().getDecorView(), BoardView.class) != null;
         if (globalFromPlay) clickText("Menu");

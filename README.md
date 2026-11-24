@@ -66,6 +66,9 @@ domain association are verified. No server or network permission is added.
 Download the APK and open it on your Android device to install; allow installation
 from your browser or file manager only if Android asks.
 
+In the app, scroll to the bottom of **Settings** for **About**, where you can see
+your installed version and open the GitHub releases page in a browser.
+
 ## About
 
 Turn on **Responsible mode** in Settings to limit each puzzle type to 10 finishes per local day. Wins and losses count, including those finished before you turned the mode on; unfinished games do not. You can still view saved puzzles at the limit. Play resets at local midnight, and you can turn the mode off starting the day after you enabled it. Daily Word still offers one regular puzzle per day. In the validation build, finishes from shared puzzles count toward the same limit as regular puzzles of that type, without changing regular progress or stats.

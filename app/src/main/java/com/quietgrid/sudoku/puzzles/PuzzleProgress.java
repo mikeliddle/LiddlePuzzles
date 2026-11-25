@@ -42,6 +42,30 @@ public final class PuzzleProgress {
     public PuzzleProgress undo() { return restore(history, redo, false); }
     public PuzzleProgress redo() { return restore(redo, history, true); }
 
+    public boolean canClear() {
+        return !game.solved() && !game.lost() && hasPlayerEntries();
+    }
+
+    public PuzzleProgress cleared() {
+        if (!canClear()) return this;
+        Puzzle next = game.copy();
+        if (next instanceof Takuzu p) System.arraycopy(p.clues, 0, p.values, 0, p.values.length);
+        else if (next instanceof Futoshiki p) System.arraycopy(p.clues, 0, p.values, 0, p.values.length);
+        else Arrays.fill(playerEntries(next), 0);
+        return edited(next);
+    }
+
+    private boolean hasPlayerEntries() {
+        int[] entries = playerEntries(game);
+        int[] clues = game instanceof Takuzu p ? p.clues : game instanceof Futoshiki p ? p.clues : null;
+        for (int i = 0; i < entries.length; i++) if (entries[i] != (clues == null ? 0 : clues[i])) return true;
+        return false;
+    }
+
+    private static int[] playerEntries(Puzzle puzzle) {
+        return puzzle instanceof Minesweeper p ? p.cells : ((UndoablePuzzle) puzzle).entries();
+    }
+
     private PuzzleProgress restore(List<int[]> from, List<int[]> to, boolean forward) {
         if (from.isEmpty()) return this;
         Puzzle restored = game.copy();

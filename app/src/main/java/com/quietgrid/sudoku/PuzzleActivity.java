@@ -63,9 +63,9 @@ public final class PuzzleActivity extends Activity {
     private MainActivity.Palette palette;
     private LinearLayout content, boardArea;
     private TextView status;
-    private Button newPuzzle, retry, mineTool;
+    private Button newPuzzle, clearPuzzle, retry, mineTool;
     private ImageButton undo, redo;
-    private Button edgeUndo, edgeRedo;
+    private Button edgeUndo, edgeRedo, edgeClear;
     private boolean canceledMultiTouch;
     private ImageButton gameSettingsButton;
     private final View[] binaryKeys = new View[3];
@@ -146,7 +146,9 @@ public final class PuzzleActivity extends Activity {
                 : new SaveSession<>(saves, new Handler(Looper.getMainLooper())::post, ex -> Log.e("Puzzle", "Game commit failed", ex));
         saveSession.attach(this);
         if (state != null) replacementSave = state.getByteArray("replacementSave");
-        if (!mode.supports(newSetting)) { Log.e("Puzzle", "Unsupported new puzzle setting"); finish(); return; }
+        if (!(state != null ? mode.canGenerate(newSetting) : mode.supports(newSetting))) {
+            Log.e("Puzzle", "Unsupported new puzzle setting"); finish(); return;
+        }
         if (android.os.Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::showMenu);
         build();
@@ -224,12 +226,48 @@ public final class PuzzleActivity extends Activity {
     private void requestNew() {
         if (shared) { showMenu(); return; }
         if (busy || ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
+        int setting = game == null ? newSetting : mode.settingOf(game);
+        confirmNew(setting);
+    }
+
+    private void confirmNew(int setting) {
+        Runnable start = () -> saveSession.dispatch(owner -> {
+            if (owner.busy) return;
+            owner.newSetting = setting;
+            owner.generate();
+        });
         if (loadFailed || game != null && !game.solved() && !game.lost()) {
             new AlertDialog.Builder(this).setTitle("Replace this puzzle?")
                     .setMessage(loadFailed ? "The unreadable save will be replaced only after a new puzzle is generated and saved."
-                            : "Your current " + mode.title + " progress will be replaced. Other puzzles are not affected.")
-                    .setNegativeButton("Keep", null).setPositiveButton("Replace", (d, w) -> generate()).show();
-        } else generate();
+                            : "Your current progress and history will be replaced by a new " + mode.title
+                                    + " puzzle (" + mode.settingLabel(setting) + "). Other puzzles are not affected.")
+                    .setNegativeButton("Keep", null).setPositiveButton("Replace", (d, w) -> start.run()).show();
+        } else start.run();
+    }
+
+    private boolean canClearPuzzle() {
+        return !busy && !limited() && progress != null && progress.canClear();
+    }
+
+    private void requestClear() {
+        if (!canClearPuzzle()) return;
+        new AlertDialog.Builder(this).setTitle(R.string.clear_puzzle)
+                .setMessage(mode == Mode.MINESWEEPER ? R.string.clear_mines_confirmation : R.string.clear_puzzle_confirmation)
+                .setNegativeButton("Keep", null)
+                .setPositiveButton(R.string.clear_action, (d, w) -> saveSession.dispatch(PuzzleActivity::clearPuzzle))
+                .show();
+    }
+
+    private void clearPuzzle() {
+        if (!canClearPuzzle()) return;
+        feedback.stop(); minesFeedback.stop();
+        playTime.setRunning(false);
+        PuzzleProgress cleared = progress.withElapsed(playTime.elapsedMillis()).cleared();
+        persist(cleared, PuzzleSave.Edit.PLAY, owner -> {
+            owner.progress = cleared; owner.game = cleared.game;
+            owner.selected = -1; owner.binaryArmed = -1; owner.futoArmed = 0; owner.flag = false;
+            owner.refresh(null);
+        });
     }
 
     private void generate() {
@@ -498,6 +536,11 @@ public final class PuzzleActivity extends Activity {
         clock.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         LinearLayout clockRow = row();
         clockRow.addView(clock, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
+        clearPuzzle = button(getString(R.string.clear_action));
+        clearPuzzle.setMinimumWidth(dp(64));
+        clearPuzzle.setContentDescription(getString(R.string.clear_puzzle));
+        clearPuzzle.setOnClickListener(v -> requestClear());
+        clockRow.addView(clearPuzzle, new LinearLayout.LayoutParams(-2, dp(48)));
         if (BuildConfig.LOCAL_PUZZLE_SHARING && mode != Mode.MINESWEEPER) {
             share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> saveSession.dispatch(owner -> {
@@ -519,12 +562,18 @@ public final class PuzzleActivity extends Activity {
         controls.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
         ControlStyle.icon(newPuzzle, shared ? getString(R.string.close_shared_sudoku) : "New puzzle",
                 shared ? R.drawable.ic_close : R.drawable.ic_add, palette.accent);
-        newPuzzle.setOnClickListener(v -> showMenu());
+        newPuzzle.setOnClickListener(v -> requestNew());
         newPuzzle.setTag("puzzle-input");
         LinearLayout.LayoutParams newLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
         controls.addView(newPuzzle, newLayout);
         retry = button("Retry"); retry.setOnClickListener(v -> {
-            if (!busy) { if (loadFailed && !generationFailed) open(); else requestNew(); }
+            if (!busy) {
+                if (loadFailed && !generationFailed) open();
+                else if (newRequested) {
+                    if (!ResponsibleMode.notifyIfLimited(this, puzzleSave)) confirmNew(newSetting);
+                }
+                else requestNew();
+            }
         });
         LinearLayout.LayoutParams retryLayout = new LinearLayout.LayoutParams(0, dp(56), 1);
         controls.addView(retry, retryLayout);
@@ -664,10 +713,12 @@ public final class PuzzleActivity extends Activity {
             loopLine.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 1));
             loopCross.setOnClickListener(v -> markEdge(edgeChoice.getSelectedItemPosition(), 2));
             alternatives.addView(loopLine); alternatives.addView(loopCross);
-            edgeUndo = button("Undo"); edgeRedo = button("Redo");
+            edgeUndo = button("Undo"); edgeRedo = button("Redo"); edgeClear = button(getString(R.string.clear_action));
             edgeUndo.setOnClickListener(v -> restoreMove(false));
             edgeRedo.setOnClickListener(v -> restoreMove(true));
-            alternatives.addView(edgeUndo); alternatives.addView(edgeRedo);
+            edgeClear.setContentDescription(getString(R.string.clear_puzzle));
+            edgeClear.setOnClickListener(v -> requestClear());
+            alternatives.addView(edgeUndo); alternatives.addView(edgeRedo); alternatives.addView(edgeClear);
             return;
         }
         LinearLayout grid = column();
@@ -765,6 +816,8 @@ public final class PuzzleActivity extends Activity {
         showingLimit = limited();
         syncTime();
         newPuzzle.setEnabled(!busy); retry.setEnabled(!busy);
+        clearPuzzle.setEnabled(!showingLimit && !busy && progress != null && progress.canClear());
+        clearPuzzle.setTextColor(clearPuzzle.isEnabled() ? palette.accent : palette.muted);
         if (share != null) share.setEnabled(!busy && game != null && !loadFailed);
         undo.setEnabled(!showingLimit && !busy && progress != null && progress.canUndo());
         undo.setAlpha(undo.isEnabled() ? 1f : .38f);
@@ -772,6 +825,10 @@ public final class PuzzleActivity extends Activity {
         redo.setAlpha(redo.isEnabled() ? 1f : .38f);
         if (edgeUndo != null) edgeUndo.setEnabled(undo.isEnabled());
         if (edgeRedo != null) edgeRedo.setEnabled(redo.isEnabled());
+        if (edgeClear != null) {
+            edgeClear.setEnabled(clearPuzzle.isEnabled());
+            edgeClear.setTextColor(clearPuzzle.getCurrentTextColor());
+        }
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
         boolean terminal = game != null && (game.solved() || game.lost());
         if (terminal) { binaryArmed = -1; selected = -1; futoArmed = 0; }

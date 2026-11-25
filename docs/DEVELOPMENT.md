@@ -90,6 +90,14 @@ notes, history, solve time, or answers. Recipients resume separate private
 progress for the same definition; normal progress and records are unchanged.
 Shared finishes can count toward the same Responsible mode limit.
 
+Whole-board Clear uses the ordinary durable play edit, not a replacement or
+finish: it retains the active slot and elapsed time, and stores the cleared
+board and Undo/Redo together where supported. Minesweeper retains the seed,
+first-placement index, and mines after Clear; a placed field may have its first
+square covered. Daily Word draft Clear uses the current pinned or local date
+and preserves submitted rows. In-game New derives generation settings from
+the active definition (including legacy Numberlink), not menu preferences.
+
 ## Device matrix
 
 Run on an approved test device or isolated validation emulator, never on a
@@ -101,6 +109,7 @@ certification or a report that they have run.
 | --- | --- |
 | Android 10 and recent Android, ordinary portrait | Tap with same-square drift beyond slop; wait past the hold threshold; release for exactly one primary move. Drag across a target boundary and back, add a second pointer, cancel or lose focus: no pending edit. A committed hold never applies a tap on release. Numberlink still commits one drag at release. |
 | Nonograms and Futoshiki, portrait and landscape | For Nonograms, tap rapidly near a cell edge and check the mark cycle, clue updates and Undo. The validation-only stalled/failing-save cases check that a pending outline appears without changing the saved mark and clears after save or rollback. For Futoshiki, try square then number, and number then multiple editable squares; verify the named armed key, givens, disarming, local Erase and Undo/Redo. |
+| In-game actions, normal and shared play | Cancel and confirm Clear, check the unchanged puzzle/timer, Undo/Redo where available, and confirm the separate local Erase or Delete still works. In Daily Word, clear a draft after submitting a guess, including from Large controls. Resume a puzzle whose setting differs from the menu preference and confirm New uses the active setting. |
 | Compact portrait (~320–360dp wide), short landscape, split window; default and largest font/display settings | Inspect 10x10 Nonograms, 8x8 Takuzu/Slitherlink, Sudoku and Daily Word. All clues, essential controls and insets remain visible; stabilize geometry through input, Undo/Redo and completion. Check the Shared puzzles field, keyboard, error, and Launch puzzle button. |
 | Same windows with TalkBack, then keyboard/D-pad | Traverse clues/cells/edges and hear useful state/coordinates. Invoke click and named secondary actions; verify Undo/Redo and disabled states. Find and use Sudoku/Daily Word Large controls and Slitherlink Edge controls, and return focus/Back predictably. Open a shared link from the labeled input. |
 | Settings → About in compact portrait and short landscape at large text; TalkBack or keyboard | Scroll to and activate **Privacy policy**. Verify focus reaches the named button and Android handles the external browser link; Back returns to Settings. The focused `DeviceTests` About cases intercept both external links and simulate a missing browser without visiting either site. |

@@ -25,6 +25,7 @@ public final class EngineTests {
         importedSaveCompatibility();
         committedCopyIsolation();
         redoHistory();
+        clearBoard();
         SharingTests.run();
         SaveTests.run();
         activePlayTime();
@@ -38,6 +39,17 @@ public final class EngineTests {
     private static void check(boolean condition, String reason) {
         checks++;
         if (!condition) throw new AssertionError(reason);
+    }
+
+    private static void clearBoard() {
+        Game game = blank();
+        game.setAutoNotes(true);
+        game.selected = 0; game.enter(2);
+        game.elapsedMillis = 12345;
+        check(game.clearBoard() && game.autoNotes && game.elapsedMillis == 12345, "Clear preserves Auto notes and elapsed time");
+        check(game.values[0] == 0 && game.notes[0] == Sudoku.ALL && !game.canClearBoard(), "Clear restores starting notes and values");
+        check(!game.clearBoard() && game.undo() && game.values[0] == 2, "Empty Clear makes no history; one Undo restores all entries");
+        check(game.redo() && game.values[0] == 0, "One Redo clears the board again");
     }
     private static void committedCopyIsolation() throws Exception {
         Game game = blank();

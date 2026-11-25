@@ -47,14 +47,14 @@ public final class DailyWordActivity extends Activity {
     private LocalDate sharedDate;
     private DailyWordBoard board;
     private TextView status;
-    private Button enter;
+    private Button enter, clearDraft;
     private ImageButton erase;
     private MainActivity.Palette palette;
     private boolean registered;
     private LargeControlsDialog largeControls;
     private android.widget.Spinner letterPicker;
     private android.widget.ArrayAdapter<String> letterChoices;
-    private Button largeAdd, largeDelete, largeEnter;
+    private Button largeAdd, largeDelete, largeEnter, largeClear;
     private TextView largeFeedback;
     private final TextView[] largeGuesses = new TextView[6];
     Clock clock = Clock.systemUTC();
@@ -194,8 +194,10 @@ public final class DailyWordActivity extends Activity {
         });
     }
 
-    private void input(char letter, boolean backspace, boolean submit) {
-        if (saveSession.defer(owner -> owner.input(letter, backspace, submit))) return;
+    enum Input { LETTER, DELETE, SUBMIT, CLEAR }
+
+    private void input(Input action, char letter) {
+        if (saveSession.defer(owner -> owner.input(action, letter))) return;
         if (game == null || checkDate() || limited()) return;
         if (game.finished(game.day(date))) return;
         board.stopFeedback();
@@ -206,9 +208,17 @@ public final class DailyWordActivity extends Activity {
         DailyWord next = new DailyWord(game);
         DailyWord.Day day = next.day(date);
         day.setElapsed(playTime.elapsedMillis());
+        boolean submit = action == Input.SUBMIT;
         String error = null;
         if (submit) error = next.submit(day);
-        else if (!(backspace ? next.erase(day) : next.letter(day, letter))) { syncTime(); return; }
+        else if (!(switch (action) {
+            case CLEAR -> next.clearDraft(day);
+            case DELETE -> next.erase(day);
+            case LETTER -> next.letter(day, letter);
+            case SUBMIT -> throw new AssertionError(action);
+        })) {
+            syncTime(); return;
+        }
         if (error != null) { refresh(error); announceFeedback(error); return; }
         PuzzleSave.Edit finish = shared ? PuzzleSave.Edit.FINISH : PuzzleSave.Edit.DAILY_FINISH;
         persist(next, next.finished(day) ? finish : PuzzleSave.Edit.PLAY, owner -> {
@@ -216,7 +226,8 @@ public final class DailyWordActivity extends Activity {
                 owner.playTime.restore(next.day(enteredDate).elapsedMillis());
             owner.game = next; owner.refresh(null);
             if (!owner.date.equals(enteredDate) || !owner.today().equals(enteredDate)) { owner.checkDate(); return; }
-            if (owner == origin && owner.resumed && owner.focused) owner.board.changed(previous, owner.game.day(owner.date), submit);
+            if (action != Input.CLEAR && owner == origin && owner.resumed && owner.focused)
+                owner.board.changed(previous, owner.game.day(owner.date), submit);
             if (submit) {
                 DailyWord.Day accepted = owner.game.day(owner.date);
                 String spoken = DailyWordBoard.rowDescription(owner.game, accepted, accepted.guesses().size() - 1) + ".";
@@ -294,6 +305,11 @@ public final class DailyWordActivity extends Activity {
         LinearLayout clockRow = new LinearLayout(this);
         clockRow.setGravity(Gravity.CENTER_VERTICAL);
         clockRow.addView(clockLine, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, fontScale)), 1));
+        clearDraft = button(getString(R.string.clear_action), false);
+        clearDraft.setMinimumWidth(dp(64));
+        clearDraft.setContentDescription(getString(R.string.clear_draft));
+        clearDraft.setOnClickListener(v -> input(Input.CLEAR, '\0'));
+        clockRow.addView(clearDraft, new LinearLayout.LayoutParams(-2, dp(48)));
         if (BuildConfig.LOCAL_PUZZLE_SHARING) {
             ImageButton share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> saveSession.dispatch(owner -> {
@@ -331,16 +347,16 @@ public final class DailyWordActivity extends Activity {
                 key.setTag(letter);
                 key.setTextSize(16);
                 key.setPadding(dp(3), dp(4), dp(3), dp(4));
-                key.setOnClickListener(v -> input(letter, false, false));
+                key.setOnClickListener(v -> input(Input.LETTER, letter));
                 letters.add(key);
             }
         }
         enter = button("Enter", true);
-        enter.setOnClickListener(v -> input('\0', false, true));
+        enter.setOnClickListener(v -> input(Input.SUBMIT, '\0'));
         erase = iconButton("Delete", R.drawable.ic_backspace);
         erase.setPadding(dp(2), dp(8), dp(2), dp(8));
         erase.setBackground(surface(palette.surface));
-        erase.setOnClickListener(v -> input('\0', true, false));
+        erase.setOnClickListener(v -> input(Input.DELETE, '\0'));
         controls.addView(new DailyWordKeyboard(this, letters, erase, enter, keyHeight),
                 new LinearLayout.LayoutParams(-1, -2));
         if (wide) {
@@ -381,6 +397,8 @@ public final class DailyWordActivity extends Activity {
         }
         enter.setEnabled(!finished);
         erase.setEnabled(!finished && !day.draft().isEmpty());
+        clearDraft.setEnabled(erase.isEnabled());
+        clearDraft.setTextColor(clearDraft.isEnabled() ? palette.accent : palette.muted);
         refreshLargeControls(feedback);
     }
 
@@ -390,17 +408,17 @@ public final class DailyWordActivity extends Activity {
             if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
                 View focused = getCurrentFocus();
                 if (focused != null && focused.isClickable() && focused.isEnabled()) return super.dispatchKeyEvent(event);
-                if (event.getAction() == KeyEvent.ACTION_DOWN) input('\0', false, true);
+                if (event.getAction() == KeyEvent.ACTION_DOWN) input(Input.SUBMIT, '\0');
                 return true;
             }
             if (keyCode == KeyEvent.KEYCODE_DEL) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) input('\0', true, false);
+                if (event.getAction() == KeyEvent.ACTION_DOWN) input(Input.DELETE, '\0');
                 return true;
             }
             int unicode = Character.toLowerCase(event.getUnicodeChar());
             if (unicode >= 'a' && unicode <= 'z') {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    input((char) unicode, false, false);
+                    input(Input.LETTER, (char) unicode);
                     DailyWord.Day day = game.day(date);
                     if (!game.finished(day)) board.focusDraft(day.guesses().size());
                 }
@@ -415,9 +433,12 @@ public final class DailyWordActivity extends Activity {
         letterPicker = largeControls.picker("Letter");
         letterChoices = largeControls.choices(letterPicker);
         largeAdd = largeControls.action("Add"); largeAdd.setContentDescription("Add letter");
-        largeAdd.setOnClickListener(v -> input((char) ('a' + letterPicker.getSelectedItemPosition()), false, false));
-        largeDelete = largeControls.action("Delete", R.drawable.ic_backspace); largeDelete.setOnClickListener(v -> input('\0', true, false));
-        largeEnter = largeControls.action("Enter"); largeEnter.setOnClickListener(v -> input('\0', false, true));
+        largeAdd.setOnClickListener(v -> input(Input.LETTER, (char) ('a' + letterPicker.getSelectedItemPosition())));
+        largeDelete = largeControls.action("Delete", R.drawable.ic_backspace); largeDelete.setOnClickListener(v -> input(Input.DELETE, '\0'));
+        largeClear = largeControls.action(getString(R.string.clear_action));
+        largeClear.setContentDescription(getString(R.string.clear_draft));
+        largeClear.setOnClickListener(v -> input(Input.CLEAR, '\0'));
+        largeEnter = largeControls.action("Enter"); largeEnter.setOnClickListener(v -> input(Input.SUBMIT, '\0'));
         largeFeedback = largeControls.text("");
         for (int row = 0; row < 6; row++) largeGuesses[row] = largeControls.text("");
         largeControls.window.setOnDismissListener(d -> { largeControls = null; });
@@ -435,6 +456,8 @@ public final class DailyWordActivity extends Activity {
         letterChoices.notifyDataSetChanged(); letterPicker.setSelection(choice);
         largeAdd.setEnabled(!finished && day.draft().length() < 5);
         largeDelete.setEnabled(!finished && !day.draft().isEmpty()); largeEnter.setEnabled(!finished);
+        largeClear.setEnabled(largeDelete.isEnabled());
+        largeClear.setTextColor(largeClear.isEnabled() ? palette.accent : palette.muted);
         letterPicker.setEnabled(!finished);
         largeFeedback.setText(feedback); largeFeedback.setVisibility(feedback.isEmpty() ? View.GONE : View.VISIBLE);
         for (int row = 0; row < 6; row++) largeGuesses[row].setText(DailyWordBoard.rowDescription(game, day, row));

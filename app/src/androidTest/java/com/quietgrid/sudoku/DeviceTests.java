@@ -851,18 +851,48 @@ public final class DeviceTests extends InstrumentationTestCase {
     }
 
     private void confirmReplacement() {
+        confirmAction("Replace");
+    }
+
+    private void confirmAction(String action) {
         android.view.accessibility.AccessibilityNodeInfo root = getInstrumentation().getUiAutomation().getRootInActiveWindow();
         assertNotNull(root);
         java.util.List<android.view.accessibility.AccessibilityNodeInfo> buttons =
-                root.findAccessibilityNodeInfosByText("Replace");
+                root.findAccessibilityNodeInfosByText(action);
         assertFalse("Replacement confirmation is in the separate dialog window", buttons.isEmpty());
         AccessibilityNodeInfo replace = null;
         for (AccessibilityNodeInfo node : buttons)
             if (node.isClickable() && node.isEnabled() && node.getText() != null
-                    && "Replace".equalsIgnoreCase(node.getText().toString())) { replace = node; break; }
+                    && action.equalsIgnoreCase(node.getText().toString())) { replace = node; break; }
         assertNotNull("Select the affirmative button, not the matching dialog title", replace);
         assertTrue(replace.performAction(AccessibilityNodeInfo.ACTION_CLICK));
         getInstrumentation().waitForIdleSync();
+    }
+
+    public void testSudokuClearAndInGameNewKeepSavedDifficulty() throws Throwable {
+        Game fixture = new Game(Sudoku.generate(Sudoku.Difficulty.MEDIUM, new Random(41000)));
+        int target = 0; while (fixture.clues[target] != 0) target++;
+        fixture.selected = target; assertTrue(fixture.enter(fixture.solution[target]));
+        fixture.elapsedMillis = 41000;
+        write(fixture); launch(); clickPrefix("Resume ");
+        ViewportChecks.polishedGameplay(activity);
+        android.graphics.RectF boardBounds = ViewportChecks.bounds(board());
+        clickText("Clear puzzle"); confirmAction("Clear");
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        Game cleared = saved();
+        assertTrue(Arrays.equals(fixture.clues, cleared.clues));
+        assertTrue(Arrays.equals(cleared.clues, cleared.values));
+        assertTrue(cleared.elapsedMillis >= 41000);
+        assertEquals(boardBounds, ViewportChecks.bounds(board()));
+        clickText("Undo"); NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertEquals(fixture.solution[target], saved().values[target]);
+        clickText("New puzzle"); confirmReplacement();
+        long deadline = SystemClock.uptimeMillis() + 15000;
+        while (Arrays.equals(fixture.clues, saved().clues) && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50);
+        Game fresh = saved();
+        assertFalse(Arrays.equals(fixture.clues, fresh.clues));
+        assertEquals(Sudoku.Difficulty.MEDIUM, fresh.difficulty);
+        assertFalse(fresh.canUndo());
     }
 
     public void testLiddlePuzzlesLauncherIcon() throws Throwable {

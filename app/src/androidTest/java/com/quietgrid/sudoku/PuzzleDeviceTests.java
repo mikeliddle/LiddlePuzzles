@@ -285,6 +285,36 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertTrue("A stale generation retry never bypasses discard confirmation", Arrays.equals(before, bytes(Mode.TAKUZU)));
     }
 
+    public void testInGameNewUsesSavedSizeAndClearKeepsSamePuzzle() throws Exception {
+        Mode mode = Mode.TAKUZU;
+        Takuzu initial = Takuzu.generate(6, new Random(32219), new Generation());
+        int target = 0; while (initial.clues[target] != -1) target++;
+        Takuzu edited = initial.copy(); edited.enter(target, 0);
+        PuzzleProgress seeded = new PuzzleProgress(initial).withElapsed(43000).edited(edited);
+        assertTrue(settings().edit().putInt(mode.settingKey(), 8).commit());
+        write(mode, PuzzleStore.encode(seeded)); launch(mode);
+
+        ViewportChecks.polishedGameplay(activity);
+        android.graphics.RectF boardBounds = ViewportChecks.bounds(tagged("puzzle-board"));
+        View clear = require(findDescription("Clear puzzle"));
+        tap(clear); tapWindow("Keep");
+        assertEquals(0, ((Takuzu) read(mode)).values[target]);
+        tap(clear); tapWindow("Clear"); ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertTrue(Arrays.equals(PuzzleStore.encode(initial), PuzzleStore.encode(read(mode))));
+        assertTrue(progress(mode).elapsedMillis >= 43000);
+        assertEquals(boardBounds, ViewportChecks.bounds(tagged("puzzle-board")));
+        assertFalse(clear.isEnabled());
+        tap(require(findDescription("Undo last move"))); ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertEquals(0, ((Takuzu) read(mode)).values[target]);
+
+        tap(require(findDescription("New puzzle"))); tapWindow("Replace");
+        ready(mode); ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertEquals(6, read(mode).size());
+        assertEquals(8, settings().getInt(mode.settingKey(), -1));
+        assertEquals(0, progress(mode).undoCount());
+        assertFalse(Arrays.equals(PuzzleStore.encode(initial), PuzzleStore.encode(read(mode))));
+    }
+
     public void testLightDarkLandscapeAndLargeType() throws Exception {
         for (int look : new int[]{1, 2}) for (Mode mode : Mode.values()) {
             assertTrue(settings().edit().putInt("appearance", look).commit());
@@ -2535,7 +2565,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
     private void chooseNewPuzzle(Mode mode, int setting, boolean confirm) {
         if (!(activity instanceof PuzzleMenuActivity)) {
             Instrumentation.ActivityMonitor menu = getInstrumentation().addMonitor(PuzzleMenuActivity.class.getName(), null, false);
-            tap(require(findText("New puzzle"))); activity = menu.waitForActivityWithTimeout(5000);
+            tap(require(findDescription("Back to " + mode.title + " menu"))); activity = menu.waitForActivityWithTimeout(5000);
             getInstrumentation().removeMonitor(menu); assertNotNull(activity); menuReady(mode);
         }
         Instrumentation.ActivityMonitor game = getInstrumentation().addMonitor(PuzzleActivity.class.getName(), null, false);

@@ -126,6 +126,12 @@ public final class DailyWord {
         return true;
     }
 
+    public boolean clearDraft(Day day) {
+        if (finished(day) || day.draft.isEmpty()) return false;
+        day.draft = "";
+        return true;
+    }
+
     /** Returns a visible error without consuming an attempt, or null on success. */
     public String submit(Day day) {
         if (finished(day)) return "Today's puzzle is finished. Come back after local midnight.";

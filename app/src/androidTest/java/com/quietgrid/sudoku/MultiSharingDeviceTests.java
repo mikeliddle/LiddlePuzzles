@@ -186,7 +186,11 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
             wordActivity.clock = Clock.fixed(today.plusDays(2).atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
             wordActivity.testZone = ZoneOffset.UTC;
             assertFalse("Shared Word does not roll over at midnight", wordActivity.checkDate());
-            invoke("input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'z', false, false);
+            String guess = imported.answer(today).equals("sense") ? "bless" : "sense";
+            for (char letter : guess.toCharArray())
+                invoke("input", new Class<?>[]{DailyWordActivity.Input.class, char.class}, DailyWordActivity.Input.LETTER, letter);
+            invoke("input", new Class<?>[]{DailyWordActivity.Input.class, char.class}, DailyWordActivity.Input.SUBMIT, '\0');
+            invoke("input", new Class<?>[]{DailyWordActivity.Input.class, char.class}, DailyWordActivity.Input.LETTER, 'z');
         });
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertEquals(today, field("date"));
@@ -199,6 +203,14 @@ public final class MultiSharingDeviceTests extends InstrumentationTestCase {
         close();
         route(sent, DailyWordActivity.class);
         assertEquals("z", ((DailyWord) field("game")).day(today).draft());
+        var submitted = ((DailyWord) field("game")).day(today).guesses();
+        assertEquals(1, submitted.size());
+        getInstrumentation().runOnMainSync(() -> assertTrue(((View) field("clearDraft")).performClick()));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        close();
+        route(sent, DailyWordActivity.class);
+        assertEquals("", ((DailyWord) field("game")).day(today).draft());
+        assertEquals(submitted, ((DailyWord) field("game")).day(today).guesses());
         assertTrue(Arrays.equals(normal, Files.readAllBytes(normalFile.toPath())));
         String other = WordShare.link(word(), today.minusDays(20));
         prepare(wordFile(other));

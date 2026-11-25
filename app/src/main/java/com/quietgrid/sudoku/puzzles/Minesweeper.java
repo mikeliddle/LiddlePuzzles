@@ -98,7 +98,8 @@ public final class Minesweeper implements Puzzle {
         if (result.flags() > mineCount || Arrays.stream(mines).sum() != (result.first < 0 ? 0 : mineCount))
             throw new IOException("Invalid mine or flag count.");
         if (result.first < 0 && Arrays.stream(cells).anyMatch(v -> v == 1)) throw new IOException("Reveal before placement.");
-        if (result.first >= 0 && (mines[result.first] != 0 || result.adjacent(result.first) != 0 || cells[result.first] != 1))
+        // Clear can cover the original first square without regenerating the field.
+        if (result.first >= 0 && (mines[result.first] != 0 || result.adjacent(result.first) != 0))
             throw new IOException("First reveal is not safe.");
         return result;
     }

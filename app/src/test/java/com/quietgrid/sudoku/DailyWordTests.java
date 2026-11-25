@@ -28,6 +28,7 @@ public final class DailyWordTests {
         calendar();
         scoring();
         playAndPersistence();
+        clearDraft();
         retiredGuesses();
         timedRecords();
         badData();
@@ -37,6 +38,17 @@ public final class DailyWordTests {
     private static void check(boolean valid, String reason) {
         checks++;
         if (!valid) throw new AssertionError(reason);
+    }
+
+    private static void clearDraft() throws IOException {
+        DailyWord game = fresh();
+        DailyWord.Day day = game.day(DailyWord.EPOCH);
+        for (char letter : "sense".toCharArray()) game.letter(day, letter);
+        check(game.submit(day) == null, "A nonwinning guess is submitted");
+        game.letter(day, 'b'); game.letter(day, 'l'); day.setElapsed(4567);
+        check(game.clearDraft(day) && !game.clearDraft(day) && day.draft().isEmpty(), "Clear removes only the current draft");
+        check(day.guesses().equals(List.of("sense")) && day.elapsedMillis() == 4567 && !game.finished(day),
+                "Draft Clear retains guesses, timer and in-progress result");
     }
 
     static DailyWord fresh() throws IOException {

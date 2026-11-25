@@ -138,13 +138,13 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         getInstrumentation().waitForIdleSync();
         byte[] wordBytes = Files.readAllBytes(file("daily-word-v1.bin").toPath());
         failFinalCommit();
-        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'a', false, false));
+        runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.LETTER, 'a'));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         java.time.LocalDate date = (java.time.LocalDate) field(activity, "date");
         assertEquals(beforeWord.day(date).draft(), ((DailyWord) field(activity, "game")).day(date).draft());
         assertTrue(Arrays.equals(wordBytes, Files.readAllBytes(file("daily-word-v1.bin").toPath())));
         restoreWriter();
-        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'a', false, false));
+        runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.LETTER, 'a'));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertEquals("a", ((DailyWord) field(activity, "game")).day(date).draft());
         close();
@@ -257,8 +257,8 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         LocalDate date = (LocalDate) field(activity, "date");
         DailyWord game = (DailyWord) field(activity, "game");
         for (char letter : game.answer(date).toCharArray())
-            runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, letter, false, false));
-        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, '\0', false, true));
+            runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.LETTER, letter));
+        runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.SUBMIT, '\0'));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         DailyWord won = (DailyWord) field(activity, "game");
         assertTrue(won.won(won.day(date)));
@@ -266,7 +266,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         assertEquals(1, save.finishedToday(date));
         close();
         start(DailyWordActivity.class, new Intent());
-        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'a', false, false));
+        runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.LETTER, 'a'));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         DailyWord reopened = (DailyWord) field(activity, "game");
         assertTrue(reopened.won(reopened.day(date)));
@@ -274,14 +274,61 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         assertEquals(1, save.finishedToday(date));
     }
 
+    public void testMinesweeperClearPreservesLayoutAndRollsBackOnFailure() throws Throwable {
+        Minesweeper mines = new Minesweeper(57, 14); mines.tap(0, false);
+        put("puzzles/minesweeper-v1.bin", PuzzleStore.encode(new PuzzleProgress(mines).withElapsed(42000)));
+        Intent launch = new Intent().putExtra(PuzzleActivity.MODE, "MINESWEEPER");
+        start(PuzzleActivity.class, launch);
+        failFinalCommit();
+        runTestOnUiThread(() -> assertTrue(((android.view.View) field(activity, "clearPuzzle")).performClick()));
+        confirmAction("Clear"); NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertTrue(Arrays.equals(mines.cells, ((Minesweeper) field(activity, "game")).cells));
+        restoreWriter();
+        runTestOnUiThread(() -> assertTrue(((android.view.View) field(activity, "clearPuzzle")).performClick()));
+        confirmAction("Clear"); NativeSaveAwaiter.await(getInstrumentation(), activity);
+        close();
+        start(PuzzleActivity.class, launch);
+        Minesweeper cleared = (Minesweeper) field(activity, "game");
+        assertTrue(Arrays.equals(mines.mines, cleared.mines));
+        assertTrue(Arrays.stream(cleared.cells).allMatch(v -> v == 0));
+        assertTrue(((PuzzleProgress) field(activity, "progress")).elapsedMillis >= 42000);
+        assertFalse(((android.view.View) field(activity, "clearPuzzle")).isEnabled());
+    }
+
+    public void testDailyWordClearDraftKeepsSubmittedGuessOnResume() throws Throwable {
+        start(DailyWordActivity.class, new Intent());
+        LocalDate date = (LocalDate) field(activity, "date");
+        DailyWord game = (DailyWord) field(activity, "game");
+        String guess = game.answer(date).equals("sense") ? "bless" : "sense";
+        runTestOnUiThread(() -> {
+            for (char letter : guess.toCharArray()) wordInput(DailyWordActivity.Input.LETTER, letter);
+            wordInput(DailyWordActivity.Input.SUBMIT, '\0');
+            wordInput(DailyWordActivity.Input.LETTER, 'a');
+        });
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        runTestOnUiThread(() -> assertTrue(((android.view.View) field(activity, "clearDraft")).performClick()));
+        NativeSaveAwaiter.await(getInstrumentation(), activity);
+        close();
+        start(DailyWordActivity.class, new Intent());
+        DailyWord.Day day = ((DailyWord) field(activity, "game")).day(date);
+        assertEquals(java.util.List.of(guess), day.guesses());
+        assertEquals("", day.draft());
+        assertFalse(((android.view.View) field(activity, "clearDraft")).isEnabled());
+    }
+
     private void quotaWrite(File file, byte[] payload, PuzzleSave.Edit edit, boolean enabled, LocalDate today) throws IOException {
         SaveQueue.forPath(file.getAbsolutePath()).writeBlocking(
                 () -> PuzzleSave.forFile(file).commit(AndroidSaveFile.at(file), payload, edit, enabled, today));
     }
+
+    private void wordInput(DailyWordActivity.Input action, char letter) {
+        invoke(activity, "input", new Class<?>[]{DailyWordActivity.Input.class, char.class}, action, letter);
+    }
+
     public void testFailedRolloverBlocksOldDateInputAndRetries() throws Throwable {
         start(DailyWordActivity.class, new Intent());
         java.time.LocalDate old = (java.time.LocalDate) field(activity, "date");
-        runTestOnUiThread(() -> invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'a', false, false));
+        runTestOnUiThread(() -> wordInput(DailyWordActivity.Input.LETTER, 'a'));
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         failFinalCommit();
         runTestOnUiThread(() -> {
@@ -289,7 +336,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
             word.testZone = java.time.ZoneOffset.UTC;
             word.clock = java.time.Clock.fixed(old.plusDays(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant(),
                     java.time.ZoneOffset.UTC);
-            invoke(activity, "input", new Class<?>[]{char.class, boolean.class, boolean.class}, 'b', false, false);
+            wordInput(DailyWordActivity.Input.LETTER, 'b');
         });
         NativeSaveAwaiter.await(getInstrumentation(), activity);
         assertEquals(old, field(activity, "date"));
@@ -344,14 +391,17 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
         assertEquals(6, PuzzleActivity.readProgress(getInstrumentation().getTargetContext(), Mode.TAKUZU).game.size());
     }
     private void confirmReplacement() {
+        confirmAction("Replace");
+    }
+    private void confirmAction(String action) {
         for (int attempt = 0; attempt < 30; attempt++) {
             getInstrumentation().waitForIdleSync();
             android.view.accessibility.AccessibilityNodeInfo root =
                     getInstrumentation().getUiAutomation().getRootInActiveWindow();
             if (root != null) try {
-                for (android.view.accessibility.AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText("Replace")) {
+                for (android.view.accessibility.AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(action)) {
                     try {
-                        if ("Replace".equalsIgnoreCase(node.getText() == null ? "" : node.getText().toString())
+                        if (action.equalsIgnoreCase(node.getText() == null ? "" : node.getText().toString())
                                 && node.isClickable()) {
                             android.graphics.Rect bounds = new android.graphics.Rect();
                             node.getBoundsInScreen(bounds);
@@ -372,7 +422,7 @@ public final class PersistenceDeviceTests extends InstrumentationTestCase {
             } finally { root.recycle(); }
             SystemClock.sleep(100);
         }
-        fail("Explicit Replace action missing");
+        fail("Explicit " + action + " action missing");
     }
     private void awaitReplacementAttempt() {
         long deadline = SystemClock.uptimeMillis() + 20000;

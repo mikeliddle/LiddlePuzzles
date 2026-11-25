@@ -61,6 +61,7 @@ public final class PuzzleTests {
         }
         takuzuLegacyAndErrors();
         undoProgress();
+        clearProgress();
         timedProgress();
         nonogramContradictions();
         binaryMarks();
@@ -93,6 +94,44 @@ public final class PuzzleTests {
     private static void reject(Mode mode, byte[] bytes) {
         try { PuzzleStore.decode(mode, bytes); throw new AssertionError("Invalid/cross-mode save accepted"); }
         catch (IOException expected) { checks++; }
+    }
+
+    private static void clearProgress() throws Exception {
+        for (Mode mode : Mode.values()) {
+            Puzzle initial = mode.generate(mode.defaultSetting(), new Random(41), new Generation());
+            PuzzleProgress pristine = new PuzzleProgress(initial);
+            check(pristine.cleared() == pristine, "Clear is a no-op on a fresh " + mode);
+            Puzzle marked = initial.copy();
+            if (marked instanceof Takuzu p) {
+                int target = 0; while (p.clues[target] != -1) target++;
+                p.enter(target, 0);
+            } else if (marked instanceof Futoshiki p) {
+                int target = 0; while (p.clues[target] != 0) target++;
+                p.enter(target, 1);
+            }
+            else if (marked instanceof Minesweeper p) p.tap(0, true);
+            else ((UndoablePuzzle) marked).entries()[0] = 1;
+            PuzzleProgress changed = pristine.withElapsed(54321).edited(marked);
+            PuzzleProgress cleared = PuzzleStore.decodeProgress(mode, PuzzleStore.encode(changed.cleared()));
+            check(cleared.elapsedMillis == 54321 && !cleared.canClear(), "Clear retains time and removes entries: " + mode);
+            check(Arrays.equals(PuzzleStore.encode(initial), PuzzleStore.encode(cleared.game)), "Clear retains definition: " + mode);
+            check(cleared.canUndo() == (mode != Mode.MINESWEEPER), "Clear adds Undo only in reversible modes");
+            if (cleared.canUndo()) {
+                PuzzleProgress restored = cleared.undo();
+                check(Arrays.equals(PuzzleStore.encode(marked), PuzzleStore.encode(restored.game)), "Undo restores all cleared entries: " + mode);
+                check(!restored.redo().canClear() && !restored.cleared().canRedo(), "Redo repeats Clear; fresh Clear discards Redo");
+            }
+        }
+        Minesweeper mines = new Minesweeper(57, 14);
+        mines.tap(0, false);
+        Minesweeper covered = (Minesweeper) PuzzleStore.decode(Mode.MINESWEEPER,
+                PuzzleStore.encode(new PuzzleProgress(mines).cleared().game));
+        check(covered.first == 0 && covered.mineCount == 14 && Arrays.equals(mines.mines, covered.mines)
+                && Arrays.stream(covered.cells).allMatch(v -> v == 0), "Generated minefield survives a full cover and reload");
+        int mine = 0;
+        while (covered.mines[mine] == 0) mine++;
+        covered.tap(mine, false);
+        check(covered.lost() && !new PuzzleProgress(covered).canClear(), "Clear does not re-roll placed mines or reopen a loss");
     }
 
     private static void visibleMilestones() {
@@ -493,14 +532,14 @@ public final class PuzzleTests {
 
     private static void puzzleSettings() throws Exception {
         check(Arrays.equals(Mode.NUMBERLINK.settings(), new int[]{6}) && Mode.NUMBERLINK.defaultSetting() == 6,
-                "Only 6x6 is offered for new Numberlink games");
+                "The Numberlink menu only offers 6x6");
         for (int pairs : new int[]{3, 4}) {
-            Numberlink legacy = Numberlink.generate(pairs, new Random(20261121 + pairs), new Generation());
+            Puzzle legacy = Mode.NUMBERLINK.generate(pairs, new Random(20261121 + pairs), new Generation());
             byte[] saved = PuzzleStore.encode(legacy);
             check(Mode.NUMBERLINK.settingOf(PuzzleStore.decode(Mode.NUMBERLINK, saved)) == pairs
                             && Mode.NUMBERLINK.settingLabel(pairs).contains("4 \u00d7 4")
                             && Arrays.equals(saved, PuzzleStore.encode(PuzzleStore.decode(Mode.NUMBERLINK, saved))),
-                    "Legacy small Numberlink identity and bytes remain readable without offering new small games");
+                    "Legacy Numberlink settings are still playable without offering them in the menu");
         }
         for (Mode mode : Mode.values()) for (int setting : mode.settings()) {
             long total = 0, maximum = 0; Set<String> definitions = new HashSet<>(), routeShapes = new HashSet<>();

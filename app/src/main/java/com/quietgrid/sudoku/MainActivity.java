@@ -92,7 +92,9 @@ public final class MainActivity extends Activity {
     private android.widget.Spinner squarePicker;
     private android.widget.ArrayAdapter<String> squareChoices;
     private TextView largeSquare;
-    private Button largeNotes, largeErase, largeUndo, largeRedo;
+    private Button largeNotes, largeErase, largeUndo, largeRedo, largeClear;
+    private Button clearPuzzleButton;
+    private ImageButton newGameButton;
     private final Button[] largeDigits = new Button[9];
     private int largeTarget;
     private CelebrationView celebration;
@@ -526,6 +528,16 @@ public final class MainActivity extends Activity {
         clock.setHorizontallyScrolling(false);
         clock.setMinHeight(dp(30));
         details.addView(clock, new LinearLayout.LayoutParams(0, dp(30 * Math.max(1, getResources().getConfiguration().fontScale)), 1));
+        newGameButton = null;
+        if (!sharedMode) {
+            newGameButton = navigationButton("New puzzle", R.drawable.ic_add);
+            newGameButton.setOnClickListener(v -> requestNewGame(game.difficulty));
+            details.addView(newGameButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
+        clearPuzzleButton = button(getString(R.string.clear_action), false);
+        clearPuzzleButton.setContentDescription(getString(R.string.clear_puzzle));
+        clearPuzzleButton.setOnClickListener(v -> requestClearPuzzle());
+        details.addView(clearPuzzleButton, new LinearLayout.LayoutParams(-2, dp(48)));
         if (BuildConfig.LOCAL_PUZZLE_SHARING) {
             ImageButton share = navigationButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> sharePuzzle());
@@ -658,6 +670,15 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void requestClearPuzzle() {
+        if (game == null || loading || readOnly() || !game.canClearBoard()) return;
+        new AlertDialog.Builder(this).setTitle(R.string.clear_puzzle).setMessage(R.string.clear_puzzle_confirmation)
+                .setNegativeButton("Keep", null)
+                .setPositiveButton(R.string.clear_action, (dialog, which) -> saveSession.dispatch(owner -> {
+                    if (owner.game != null && !owner.loading && !owner.readOnly() && owner.game.clearBoard()) owner.changed();
+                })).show();
+    }
+
     private void changed() { changed(owner -> {}); }
     private void changed(java.util.function.Consumer<MainActivity> success) {
         updateElapsed();
@@ -685,6 +706,9 @@ public final class MainActivity extends Activity {
         showingLimit = limited();
         boolean readOnly = showingLimit || game.won();
         board.setEnabled(!readOnly);
+        clearPuzzleButton.setEnabled(!readOnly && !loading && game.canClearBoard());
+        clearPuzzleButton.setTextColor(clearPuzzleButton.isEnabled() ? palette.accent : palette.muted);
+        if (newGameButton != null) newGameButton.setEnabled(!showingLimit && !loading);
         refreshLargeControls();
         undoButton.setEnabled(!readOnly && game.canUndo() && !loading);
         redoButton.setEnabled(!readOnly && game.canRedo() && !loading);
@@ -768,6 +792,9 @@ public final class MainActivity extends Activity {
         largeNotes.setOnClickListener(v -> notesButton.performClick());
         largeUndo = largeControls.action("Undo", R.drawable.ic_undo); largeUndo.setOnClickListener(v -> undoButton.performClick());
         largeRedo = largeControls.action("Redo", R.drawable.ic_redo); largeRedo.setOnClickListener(v -> redoButton.performClick());
+        largeClear = largeControls.action(getString(R.string.clear_action));
+        largeClear.setContentDescription(getString(R.string.clear_puzzle));
+        largeClear.setOnClickListener(v -> requestClearPuzzle());
         squarePicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 largeTarget = position; refreshLargeTarget();
@@ -806,6 +833,8 @@ public final class MainActivity extends Activity {
         largeUndo.setEnabled(!showingLimit && !game.won() && game.canUndo());
         largeRedo.setEnabled(!showingLimit && !game.won() && game.canRedo());
         largeNotes.setEnabled(!showingLimit && !game.won());
+        largeClear.setEnabled(clearPuzzleButton.isEnabled());
+        largeClear.setTextColor(largeClear.isEnabled() ? palette.accent : palette.muted);
     }
 
     private void openSettings() {
@@ -1232,7 +1261,7 @@ public final class MainActivity extends Activity {
     }
 
     private void requestNewGame(Sudoku.Difficulty difficulty) {
-        if (loading || ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
+        if (sharedMode || loading || ResponsibleMode.notifyIfLimited(this, puzzleSave)) return;
         if (game != null && !game.won()) {
             new AlertDialog.Builder(this).setTitle("Replace this game?")
                     .setMessage("Your current game and undo history will be replaced by a new "

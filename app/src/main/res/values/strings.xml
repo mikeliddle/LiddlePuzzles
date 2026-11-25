@@ -1,4 +1,9 @@
 <resources>
+    <string name="clear_action">Clear</string>
+    <string name="clear_puzzle">Clear puzzle</string>
+    <string name="clear_draft">Clear draft</string>
+    <string name="clear_puzzle_confirmation">Remove your entries and keep the original givens and clues. Your timer is not reset. You can undo this move.</string>
+    <string name="clear_mines_confirmation">Cover all squares and remove flags. The timer and any placed mines stay the same. You can’t undo this action.</string>
     <string name="app_name">Liddle Puzzles</string>
     <string name="back_to_puzzles">Back to Liddle Puzzles</string>
     <string name="game_status">%1$s  \u00b7  %2$d/81 filled</string>

@@ -207,7 +207,7 @@ an arbitrary rule for every component.
 | Clear / Reset | Explicit Clear or Reset text | Synonyms: remove all player inputs from the current board while preserving original givens/clues. Confirm destructive progress removal; do not generate a different puzzle. |
 | Delete letter | Backspace icon | Delete draft input, not a submitted guess or saved day. |
 | How to play | Help vector | Optional rules for the named new game, not a mandatory tutorial. |
-| New puzzle / Retry / Notes / Enter | Keep explicit text when needed | Do not replace domain-dependent or destructive actions with ambiguous glyphs. |
+| Clear / New puzzle / Retry / Notes / Enter | Keep explicit text when needed | Whole-board Clear and draft Clear have distinct accessible names; neither is a local Erase or Delete. |
 
 Digits, letters, remaining counts and concise mode labels are essential input
 content, not candidates for icon replacement. Icon-first does not mean icon-only
@@ -245,7 +245,7 @@ back to the invoking menu instead of stranding the user on Sudoku's hub.
 
 Offer meaningful supported axes, not nominal Easy/Hard labels on the same board.
 Current choices: Takuzu 6x6/8x8; Nonograms 5x5/8x8/10x10;
-Numberlink only 6x6 with five pairs for new games (legacy 4x4 games still Resume);
+Numberlink's menu offers only 6x6 with five pairs (legacy 4x4 games still Resume);
 Minesweeper 8x8 with ten/fourteen mines. More pairs change route constraints,
 not a certified human difficulty rating; higher mine density does not promise
 no guessing. Nonogram sizes are workload choices, not technique-rated difficulty;
@@ -496,8 +496,17 @@ Updates and switching games preserve saves, settings, records and per-mode histo
 Confirm replacing active progress, including whole-board Clear/Reset. Confirmation
 must identify that all player inputs will be removed and original givens/clues
 retained; cancel leaves progress unchanged. Clear/Reset is not New puzzle and must
-not imply erasing other modes, settings or records. A new size cannot change the
-saved board before confirmed, successfully saved replacement. A layout or branding change must not silently change puzzle labels,
+not imply erasing other modes, settings or records. Clear preserves elapsed time
+and the exact puzzle, including a shared definition. It is one Undo step where
+history exists and unavailable on a finished or already-clear board. Minesweeper
+covers all squares without rerolling placed mines; before placement it preserves
+the safe-first-reveal rule. Daily Word clears only the unsubmitted draft, without
+confirmation, including shared dates. Submitted guesses are not reversible.
+In-game New uses the current difficulty, size or mine count; choose another
+setting in the menu. A legacy 4x4 Numberlink can be replaced in play with the
+same pair count, without reintroducing that size in the menu. Shared slots don't
+offer New. A new size cannot change the saved board before confirmed, successfully
+saved replacement. A layout or branding change must not silently change puzzle labels,
 generation guarantees, frozen schedules or data formats.
 
 ### Current per-mode review
@@ -538,7 +547,7 @@ inspection; full assistive-technology traversal remains unverified.
 | Nonograms | Centered full-fit board and measured clues; submenu sizes 5x5/8x8/10x10 with procedural unique generation; distinct filled/cross/unknown; quiet red/dashed clue errors; Undo, timer, completion and focusable reasons; legacy 5x5 saves retained. | Larger boards scale targets and effective text down. Sizes are not certified technique ratings. Line errors do not identify a particular wrong cell or every global impossibility; hidden-solution mistakes are not checked. |
 | Futoshiki | Number/eraser bank separated from the complete inequality grid by a fixed 16dp composition gap (below in portrait, beside in landscape), scaled with the full-fit layout; underlined selected target; immutable givens; measured scalable inequality gutters; duplicate/inequality reasons and ! cues; persistent Undo and prominent completion. | Feedback checks entered duplicates and inequalities, not every globally unsatisfiable partial square. |
 | Minesweeper | Full-fit reveal/hold-flag plus adjacent explicit flag toggle/count and icon New; covered/revealed fills differ; submenu offers ten/fourteen mines; first neighborhood safe; density persists; red/non-color loss is fixed in place; paint-only reveal/flag/loss motion; no information-reversing Undo. | Later guesses may be necessary at either density. Selected fill/outline and accessible state identify Flag versus Reveal; disabled motion leaves the same steady result. |
-| Numberlink | Centered full-fit 6x6 new puzzles with five pairs, real bends/detours and unique full coverage; legacy 4x4 three/four-pair saves/history still Resume; stable colors/numbers; drag preview/backtracking/cancel and one-gesture Undo; tap/key/node editing; no neighboring-square idle instruction. | User chose 6x6 only for now after bounded larger-generation experiments failed reliability; do not offer 4x4 new games, nominal 8x8/10x10 tiers or weakened uniqueness. Current route constraints are not certified human difficulty. No global dead-end oracle; colors do not replace labels/spoken connections. |
+| Numberlink | Centered full-fit 6x6 new puzzles with five pairs, real bends/detours and unique full coverage; legacy 4x4 three/four-pair saves/history still Resume and support same-size in-game New; stable colors/numbers; drag preview/backtracking/cancel and one-gesture Undo; tap/key/node editing; no neighboring-square idle instruction. | The menu stays 6x6-only after bounded larger-generation experiments failed reliability; do not add nominal 8x8/10x10 tiers or weaken uniqueness. Current route constraints are not certified human difficulty. No global dead-end oracle; colors do not replace labels/spoken connections. |
 | Slitherlink | 4x4/6x6/8x8 unique procedural sizes; full-fit board/actions; numbered AND blank clues; optional clue/edge dialogs with complete size-correct coordinates; quiet localized red/outline violation cues with accessible reasons; 500-step persistent Undo and stable completion. | Early feedback covers named forced violations, not every impossible partial loop. Larger sizes are workload choices, not technique ratings. Direct edge targets may be small; optional large alternatives remain. |
 
 Across every row, hub and submenu buttons have no subtitles; Resume/View keeps

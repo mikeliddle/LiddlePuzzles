@@ -85,8 +85,11 @@ public enum Mode {
     public int defaultSetting() { return this == TAKUZU ? 8 : this == NUMBERLINK ? 6 : settings()[0]; }
     public String settingKey() { return this == TAKUZU ? "takuzuSize" : name().toLowerCase(java.util.Locale.ROOT) + "Setting"; }
     public boolean supports(int setting) { for (int value : settings()) if (value == setting) return true; return false; }
+    public boolean canGenerate(int setting) {
+        return supports(setting) || this == NUMBERLINK && (setting == 3 || setting == 4);
+    }
     public String settingLabel(int setting) {
-        if (!supports(setting) && !(this == NUMBERLINK && (setting == 3 || setting == 4)))
+        if (!canGenerate(setting))
             throw new IllegalArgumentException("Unsupported puzzle setting.");
         switch (this) {
             case TAKUZU: return setting + " \u00d7 " + setting;
@@ -109,7 +112,7 @@ public enum Mode {
     }
 
     public Puzzle generate(int setting, Random random, Generation budget) {
-        if (!supports(setting)) throw new IllegalArgumentException("Unsupported puzzle setting.");
+        if (!canGenerate(setting)) throw new IllegalArgumentException("Unsupported puzzle setting.");
         switch (this) {
             case TAKUZU: return Takuzu.generate(setting, random, budget);
             case NONOGRAM: return Nonogram.generate(setting, random, budget);

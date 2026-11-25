@@ -137,6 +137,25 @@ public final class Game {
         return true;
     }
 
+    public boolean canClearBoard() {
+        if (won()) return false;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i] != clues[i] || notes[i] != startingNotes(i)) return true;
+        }
+        return false;
+    }
+
+    public boolean clearBoard() {
+        if (!canClearBoard()) return false;
+        checkpoint();
+        System.arraycopy(clues, 0, values, 0, values.length);
+        for (int i = 0; i < notes.length; i++) notes[i] = startingNotes(i);
+        selected = -1; armedDigit = 0;
+        return true;
+    }
+
+    private int startingNotes(int cell) { return autoNotes && clues[cell] == 0 ? Sudoku.ALL : 0; }
+
     public void setAutoNotes(boolean enabled) {
         if (autoNotes == enabled) return;
         checkpoint();

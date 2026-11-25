@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.util.SparseIntArray;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -48,6 +49,7 @@ public final class PuzzleActivity extends Activity {
     private final List<Button> cells = new ArrayList<>();
     private final List<TextView> loopClues = new ArrayList<>();
     private final List<View> futoKeys = new ArrayList<>();
+    private final SparseIntArray pendingPictureCells = new SparseIntArray();
     private final List<View> sideControls = new ArrayList<>();
     private final MinesFeedback minesFeedback = new MinesFeedback();
     private TextView[] pictureClues = new TextView[0];
@@ -69,6 +71,7 @@ public final class PuzzleActivity extends Activity {
     private final View[] binaryKeys = new View[3];
     private LinearLayout binaryBank;
     private View binaryGrid;
+    private View futoGrid, futoBank;
     private int binaryArmed = -1;
     private NumberlinkBoard paths;
     private SlitherlinkBoard loop;
@@ -77,6 +80,7 @@ public final class PuzzleActivity extends Activity {
     private Button loopTool, loopLine, loopCross;
     private boolean busy, loadFailed, generationFailed, flag;
     private int selected = -1;
+    private int futoArmed;
     final ActivePlayTimer playTime = new ActivePlayTimer(android.os.SystemClock::elapsedRealtime);
     private TextView clock;
     private CompletionFeedback completion;
@@ -121,6 +125,7 @@ public final class PuzzleActivity extends Activity {
         if (state != null) {
             flag = state.getBoolean("flag"); selected = state.getInt("selected", -1);
             binaryArmed = state.getInt("binaryArmed", -1);
+            futoArmed = state.getInt("futoArmed");
         }
         if (mode == Mode.TAKUZU) selected = -1;
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
@@ -249,7 +254,8 @@ public final class PuzzleActivity extends Activity {
                         owner.newRequested = false; owner.replacementSave = null;
                         owner.progress = fresh; owner.game = created; owner.loadFailed = false;
                         owner.playTime.restore(0);
-                        owner.selected = -1; owner.binaryArmed = -1; owner.showBoard(); owner.refresh(null);
+                        owner.selected = -1; owner.binaryArmed = -1; owner.futoArmed = 0;
+                        owner.showBoard(); owner.refresh(null);
                     });
                 });
             } catch (CancellationException ex) {
@@ -273,6 +279,7 @@ public final class PuzzleActivity extends Activity {
     private void persist(PuzzleProgress next, PuzzleSave.Edit edit, java.util.function.Consumer<PuzzleActivity> success) {
         java.time.LocalDate today = ResponsibleMode.today();
         saveSession.commit(() -> write(next, edit, today), success, (owner, ex) -> {
+            owner.clearPicturePending();
             if (ex instanceof PuzzleSave.LimitReached) { owner.showLimit(); return; }
             if (owner.newRequested) owner.generationFailed = true;
             owner.saveError(ex);
@@ -328,7 +335,8 @@ public final class PuzzleActivity extends Activity {
                 : !forward && (game.solved() || game.lost()) ? PuzzleSave.Edit.UNDO_FINISH : PuzzleSave.Edit.PLAY;
         persist(restored, edit, owner -> {
             if (restored.game.solved() || restored.game.lost()) owner.playTime.restore(restored.elapsedMillis);
-            owner.progress = restored; owner.game = restored.game; owner.selected = -1; owner.binaryArmed = -1;
+            owner.progress = restored; owner.game = restored.game;
+            owner.selected = -1; owner.binaryArmed = -1; owner.futoArmed = 0;
             owner.refresh(null); if (owner.resumed) owner.undo.announceForAccessibility(forward ? "Move redone." : "Move undone.");
         });
     }
@@ -340,6 +348,7 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void cell(int cell) {
+        if (game instanceof Nonogram) { pictureCell(cell, false); return; }
         if (saveSession.defer(owner -> owner.cell(cell))) return;
         if (busy || game == null || game.solved() || game.lost() || limited()) return;
         if (game instanceof Takuzu) {
@@ -352,7 +361,11 @@ public final class PuzzleActivity extends Activity {
             return;
         }
 
-        if (game instanceof Futoshiki) { selected = cell; refresh(null); }
+        if (game instanceof Futoshiki futo) {
+            if (futo.clues[cell] != 0) return;
+            if (futoArmed == 0) { selected = cell; refresh(null); }
+            else change(next -> { ((Futoshiki) next).enter(cell, futoArmed); return null; });
+        }
         else if (game instanceof Numberlink) {
             if (selected < 0 || selected == cell) { selected = selected == cell ? -1 : cell; refresh(null); }
             else {
@@ -360,8 +373,7 @@ public final class PuzzleActivity extends Activity {
                 change(next -> ((Numberlink) next).toggle(previous, cell));
             }
         } else change(next -> {
-            if (next instanceof Nonogram) ((Nonogram) next).cycle(cell);
-            else if (next instanceof Minesweeper) {
+            if (next instanceof Minesweeper) {
                 Minesweeper mine = (Minesweeper) next;
                 return mine.tap(cell, flag && mine.cells[cell] != 1);
             }
@@ -383,8 +395,45 @@ public final class PuzzleActivity extends Activity {
     private void secondaryCell(int cell) {
         if (!resumed || !focused || busy || game == null || game.solved() || game.lost()) return;
         if (game instanceof Takuzu) binaryCell(cell, 1);
-        else if (game instanceof Nonogram) change(next -> { ((Nonogram) next).mark(cell, 2); return null; });
+        else if (game instanceof Nonogram) pictureCell(cell, true);
         else if (game instanceof Minesweeper) change(next -> ((Minesweeper) next).tap(cell, true));
+    }
+
+    private void pictureCell(int cell, boolean cross) {
+        if (busy || game.solved() || limited()) return;
+        pendingPictureCells.put(cell, pendingPictureCells.get(cell) + 1);
+        showPicturePending(cell);
+        saveSession.dispatch(owner -> owner.change(next -> {
+            Nonogram picture = (Nonogram) next;
+            if (cross) picture.mark(cell, 2); else picture.cycle(cell);
+            return null;
+        }));
+        // The next queued action runs after this edit is durable (or determined to be a no-op).
+        saveSession.dispatch(owner -> {
+            if (owner != this) return;
+            int remaining = pendingPictureCells.get(cell) - 1;
+            if (remaining > 0) pendingPictureCells.put(cell, remaining); else pendingPictureCells.delete(cell);
+            showPicturePending(cell);
+        });
+    }
+
+    private void showPicturePending(int cell) {
+        Button square = cells.get(cell);
+        if (pendingPictureCells.get(cell) == 0) { square.setForeground(null); return; }
+        GradientDrawable outline;
+        if (square.getForeground() instanceof GradientDrawable existing) outline = existing;
+        else {
+            outline = new GradientDrawable();
+            outline.setColor(android.graphics.Color.TRANSPARENT);
+            outline.setCornerRadius(dp(5));
+            square.setForeground(outline);
+        }
+        outline.setStroke(dp(2), square.getCurrentTextColor(), dp(3), dp(2));
+    }
+
+    private void clearPicturePending() {
+        for (int i = 0; i < pendingPictureCells.size(); i++) cells.get(pendingPictureCells.keyAt(i)).setForeground(null);
+        pendingPictureCells.clear();
     }
 
     private void markEdge(int edge, int mark) {
@@ -392,8 +441,13 @@ public final class PuzzleActivity extends Activity {
         change(next -> { ((Slitherlink) next).mark(edge, mark); return null; });
     }
     private void enterFutoshiki(int digit) {
-        if (selected < 0) { if (resumed) status.announceForAccessibility("Select a square."); return; }
+        if (busy || game == null || game.solved() || limited()) return;
+        if (selected < 0) {
+            if (digit != 0) { futoArmed = futoArmed == digit ? 0 : digit; refresh(null); }
+            return;
+        }
         int target = selected;
+        selected = -1;
         change(next -> { ((Futoshiki) next).enter(target, digit); return null; });
     }
 
@@ -540,7 +594,7 @@ public final class PuzzleActivity extends Activity {
         sideControls.clear();
         cells.clear(); loopClues.clear(); futoKeys.clear();
         pictureClues = new TextView[0];
-        binaryGrid = null; mineGrid = null;
+        binaryGrid = null; mineGrid = null; futoGrid = null; futoBank = null;
         paths = null; loop = null; mineTool = null; edgeChoice = null; loopTool = null; boardArea.removeAllViews();
         if (game instanceof Numberlink) {
             paths = new NumberlinkBoard(this, palette, this::button, this::cell, drawn -> {
@@ -675,7 +729,9 @@ public final class PuzzleActivity extends Activity {
         if (game instanceof Takuzu) binaryGrid = grid;
         if (game instanceof Minesweeper) mineGrid = grid;
         if (game instanceof Futoshiki) {
+            futoGrid = grid;
             LinearLayout bank = row(); bank.setTag("puzzle-input");
+            futoBank = bank;
             for (int value = 0; value <= 4; value++) {
                 int digit = value;
                 View key = value == 0 ? iconButton("Erase", R.drawable.ic_erase) : button("" + value);
@@ -718,7 +774,7 @@ public final class PuzzleActivity extends Activity {
         if (edgeRedo != null) edgeRedo.setEnabled(redo.isEnabled());
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
         boolean terminal = game != null && (game.solved() || game.lost());
-        if (terminal) { binaryArmed = -1; selected = -1; }
+        if (terminal) { binaryArmed = -1; selected = -1; futoArmed = 0; }
         String[] binaryErrors = game instanceof Takuzu ? ((Takuzu) game).errors() : null;
         String[] futoErrors = game instanceof Futoshiki ? ((Futoshiki) game).errors() : null;
         Slitherlink.Errors loopErrors = game instanceof Slitherlink ? ((Slitherlink) game).errors() : null;
@@ -791,6 +847,7 @@ public final class PuzzleActivity extends Activity {
             } else if (game instanceof Futoshiki) {
                 Futoshiki p = (Futoshiki) game; label = p.values[i] == 0 ? "" : "" + p.values[i]; fixed = p.clues[i] != 0;
                 meaning = label.isEmpty() ? "empty" : label;
+                if (!fixed && !terminal && futoArmed != 0) meaning += ", tap to enter " + futoArmed;
             } else if (game instanceof Minesweeper) {
                 Minesweeper p = (Minesweeper) game;
                 if (p.cells[i] == 1 || p.lost() && p.mines[i] == 1) {
@@ -837,14 +894,20 @@ public final class PuzzleActivity extends Activity {
                     error != null ? palette.error : selected == i ? palette.accent : palette.line);
             if (error != null) fill.setStroke(dp(3), palette.error);
             actionSurface(cell, fill);
+            if (pendingPictureCells.get(i) > 0) showPicturePending(i);
         }
         for (int value = 0; value < futoKeys.size(); value++) {
+            View key = futoKeys.get(value);
+            boolean armed = value != 0 && value == futoArmed;
             String action = value == 0 ? "Erase" : "Enter " + value;
-            futoKeys.get(value).setContentDescription(action + (selected < 0 ? ", choose a square first"
-                    : ", row " + (selected / 4 + 1) + " column " + (selected % 4 + 1)));
-            futoKeys.get(value).setEnabled(!showingLimit && !busy && !terminal && selected >= 0 && ((Futoshiki) game).clues[selected] == 0);
-            futoKeys.get(value).setAlpha(futoKeys.get(value).isEnabled() ? 1f : .38f);
-            if (value == 0) actionSurface(futoKeys.get(value), surface(palette.surface, palette.line));
+            key.setContentDescription(selected >= 0 ? action + ", row " + (selected / 4 + 1) + " column " + (selected % 4 + 1)
+                    : value == 0 ? "Erase, choose a square first" : armed ? value + " armed, tap to disarm" : "Arm " + value);
+            key.setSelected(armed);
+            key.setEnabled(!showingLimit && !busy && !terminal && (value != 0 || selected >= 0));
+            key.setAlpha(key.isEnabled() ? 1f : .38f);
+            GradientDrawable fill = surface(armed ? palette.tint : palette.surface, armed ? palette.accent : palette.line);
+            if (armed) fill.setStroke(dp(2), palette.accent);
+            actionSurface(key, fill);
         }
         if (paths != null) paths.show((Numberlink) game, selected, !busy && !terminal);
         if (loop != null) loop.show((Slitherlink) game, loopErrors, !busy && !terminal);
@@ -1011,7 +1074,20 @@ public final class PuzzleActivity extends Activity {
                 && !inside(gameSettingsButton, event) && (selected >= 0 || binaryArmed >= 0)) {
             selected = -1; binaryArmed = -1; refresh(null);
         }
-        return super.dispatchTouchEvent(event);
+        boolean outsideFuto = futoGrid != null && !inside(futoGrid, event)
+                && !inside(futoBank, event) && !inside(gameSettingsButton, event);
+        if (outsideFuto && event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            saveSession.dispatch(owner -> {
+                if (owner.futoArmed != 0) { owner.futoArmed = 0; owner.refresh(null); }
+            });
+        }
+        boolean handled = super.dispatchTouchEvent(event);
+        if (outsideFuto && event.getActionMasked() == MotionEvent.ACTION_UP) {
+            handler.post(() -> saveSession.dispatch(owner -> {
+                if (owner.selected >= 0) { owner.selected = -1; owner.refresh(null); }
+            }));
+        }
+        return handled;
     }
     private boolean inside(View view, MotionEvent event) {
         android.graphics.Rect bounds = new android.graphics.Rect();
@@ -1035,6 +1111,7 @@ public final class PuzzleActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         saveSession.dispatch(PuzzleActivity::checkpointTime);
         super.onSaveInstanceState(out); out.putInt("selected", selected); out.putBoolean("flag", flag); out.putInt("binaryArmed", binaryArmed);
+        out.putInt("futoArmed", futoArmed);
         out.putBoolean("newRequested", newRequested); out.putInt(NEW_SETTING, newSetting);
         out.putByteArray("replacementSave", replacementSave);
     }

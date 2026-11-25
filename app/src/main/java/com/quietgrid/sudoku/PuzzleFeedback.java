@@ -36,7 +36,7 @@ final class PuzzleFeedback extends View {
     private final MainActivity.Palette palette;
     private ValueAnimator animator;
     private float progress;
-    private long duration;
+    private long duration, entryDuration;
 
     PuzzleFeedback(FrameLayout stage, MainActivity.Palette palette) {
         super(stage.getContext()); this.palette = palette;
@@ -54,6 +54,7 @@ final class PuzzleFeedback extends View {
         if (!motion) return;
         int[] old = before.entries(), next = after.entries();
         boolean[] satisfied = PuzzleMilestones.newlySatisfied(before, after);
+        boolean picture = after instanceof Nonogram;
         int n = after.size(), origin = 0;
         for (int i = 0; i < next.length; i++) if (old[i] != next[i]) {
             origin = i;
@@ -95,12 +96,13 @@ final class PuzzleFeedback extends View {
                     int distance = Math.abs(cell / n - origin / n) + Math.abs(cell % n - origin % n);
                     View target = cells.get(cell);
                     add(target, new RectF(0, 0, target.getWidth(), target.getHeight()), true, false, false,
-                            distance * .025f, palette.accent);
+                            (picture ? Math.min(distance, 9) : distance) * .025f, palette.accent);
                 }
             }
         }
         if (marks.isEmpty()) return;
-        duration = marks.stream().anyMatch(mark -> mark.wave) ? 900 : 480;
+        entryDuration = picture ? 180 : 480;
+        duration = marks.stream().anyMatch(mark -> mark.wave) ? (picture ? 320 : 900) : entryDuration;
         animator = ValueAnimator.ofFloat(0, 1); animator.setDuration(duration);
         animator.setInterpolator(new android.view.animation.LinearInterpolator());
         animator.addUpdateListener(value -> { progress = (float) value.getAnimatedValue(); invalidate(); });
@@ -137,7 +139,7 @@ final class PuzzleFeedback extends View {
         transformMatrixToGlobal(global); global.invert(inverse);
         for (Mark mark : marks) {
             if (!mark.target.isAttachedToWindow()) continue;
-            float phase = mark.wave ? (progress - mark.delay) / .72f : progress * duration / 480f;
+            float phase = mark.wave ? (progress - mark.delay) / .72f : progress * duration / entryDuration;
             if (phase < 0 || phase >= 1) continue;
             float strength = mark.wave ? Math.min(1, phase / .18f) * Math.min(1, (1 - phase) / .55f)
                     : 1 - phase;

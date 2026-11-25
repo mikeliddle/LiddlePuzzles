@@ -574,7 +574,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         }
     }
 
-    public void testDesignRuleFeedbackAndLocalErase() throws Exception {
+    public void testFutoshikiRuleFeedbackAndLocalErase() throws Exception {
         Futoshiki futo = (Futoshiki) decodeFixture(Mode.FUTOSHIKI, "initial");
         Arrays.fill(futo.clues, 0); Arrays.fill(futo.values, 0);
         Arrays.fill(futo.horizontal, 0); Arrays.fill(futo.vertical, 0);
@@ -589,6 +589,8 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertTrue(erase.getContentDescription().toString().startsWith("Erase, row 1 column 2"));
         tap(require(activity.findViewById(android.R.id.content).findViewWithTag("digit-4")));
         assertFalse("Correction removes the old error", square(0).getContentDescription().toString().contains("error:"));
+        assertFalse("Square-first number entry consumes selection", square(1).isSelected());
+        tap(square(1));
         assertTrue("Selection stays distinguishable from an error", square(1).isSelected());
         assertTrue((((TextView) square(1)).getPaintFlags() & android.graphics.Paint.UNDERLINE_TEXT_FLAG) != 0);
         tap(require(findDescription("Undo last move")));
@@ -599,8 +601,10 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertFalse(square(0).getContentDescription().toString().contains("error:"));
         tap(require(findDescription("Undo last move")));
         assertTrue(square(0).getContentDescription().toString().contains("error:"));
-        capture("puzzles-design-futoshiki-errors.png"); close();
+        capture("puzzles-design-futoshiki-errors.png");
+    }
 
+    public void testSlitherlinkRuleFeedback() throws Exception {
         Slitherlink slither = (Slitherlink) decodeFixture(Mode.SLITHERLINK, "initial");
         Arrays.fill(slither.clues, -1); Arrays.fill(slither.edges, 0); slither.clues[0] = 1;
         int top = Slitherlink.SIDES[0][0], left = Slitherlink.SIDES[0][1];
@@ -1126,7 +1130,66 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertEquals(undoCount, progress(mode).undoCount());
     }
 
+    public void testFutoshikiSquareAndNumberFirstEntry() throws Exception {
+        Mode mode = Mode.FUTOSHIKI;
+        write(mode, fixture(mode, "initial")); launch(mode);
+        Futoshiki initial = (Futoshiki) read(mode);
+        int first = -1, second = -1, given = -1;
+        for (int i = 0; i < initial.clues.length; i++) {
+            if (initial.clues[i] != 0) given = i;
+            else if (first < 0) first = i;
+            else if (second < 0) second = i;
+        }
+        assertTrue(given >= 0 && second >= 0);
+        View one = require(tagged("digit-1")), two = require(tagged("digit-2")), erase = require(tagged("digit-0"));
+        assertFalse(erase.isEnabled());
+        tap(square(first));
+        assertTrue(square(first).isSelected());
+        assertTrue("Selected square is the erase target", erase.isEnabled());
+        tap(one);
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertEquals(1, ((Futoshiki) read(mode)).values[first]);
+        assertFalse(square(first).isSelected());
+        assertFalse(one.isSelected());
+
+        tap(one); assertTrue(one.isSelected());
+        tap(two); assertFalse(one.isSelected()); assertTrue(two.isSelected());
+        tap(two); assertFalse(two.isSelected());
+        tap(two);
+        assertTrue(two.getContentDescription().toString().contains("armed"));
+        assertTrue(square(second).getContentDescription().toString().contains("tap to enter 2"));
+        assertFalse(square(given).isEnabled());
+        tap(square(given));
+        assertTrue(two.isSelected());
+        assertEquals(initial.clues[given], ((Futoshiki) read(mode)).values[given]);
+        rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        two = require(tagged("digit-2"));
+        assertTrue("Rotation preserves number-first entry", two.isSelected());
+        tap(square(first)); tap(square(second));
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        Futoshiki entered = (Futoshiki) read(mode);
+        assertEquals(2, entered.values[first]); assertEquals(2, entered.values[second]);
+        assertTrue(two.isSelected()); assertFalse(square(second).isSelected());
+        assertEquals(3, progress(mode).undoCount());
+        tap(require(findDescription("Undo last move")));
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertFalse(two.isSelected());
+        tap(two); tap(square(first));
+        assertTrue("A no-op keeps the redo step", progress(mode).canRedo());
+        tap(require(findDescription("Redo last move")));
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
+        assertEquals(2, ((Futoshiki) read(mode)).values[second]);
+    }
+
     public void testNonogramRapidTapsQueueEachCycleUntilDurable() throws Exception {
+        checkNonogramPendingInput(false);
+    }
+
+    public void testNonogramFailedSaveClearsPendingFeedback() throws Exception {
+        checkNonogramPendingInput(true);
+    }
+
+    private void checkNonogramPendingInput(boolean failSave) throws Exception {
         Mode mode = Mode.NONOGRAM;
         write(mode, fixture(mode, "initial")); launch(mode);
         java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
@@ -1144,6 +1207,7 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
                                 if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS))
                                     throw new java.io.IOException("Test save stall timed out");
                             } catch (InterruptedException ex) { throw new java.io.IOException(ex); }
+                            if (failSave) throw new java.io.IOException("Test save failure");
                             delegate.copy(from, to);
                         }
                         @Override public void write(File file, byte[] bytes) throws java.io.IOException { delegate.write(file, bytes); }
@@ -1158,17 +1222,25 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
             android.graphics.RectF bounds = ViewportChecks.bounds(square(0));
             for (int tap = 0; tap < 2; tap++) {
                 long time = SystemClock.uptimeMillis();
-                MotionEvent down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
-                MotionEvent up = MotionEvent.obtain(time, time + 30, MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                float x = tap == 0 ? bounds.centerX() : bounds.right - 2;
+                MotionEvent down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, bounds.centerY(), 0);
+                MotionEvent up = MotionEvent.obtain(time, time + 30, MotionEvent.ACTION_UP, x, bounds.centerY(), 0);
                 getInstrumentation().sendPointerSync(down); getInstrumentation().sendPointerSync(up);
                 down.recycle(); up.recycle();
                 if (tap == 0) assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                getInstrumentation().waitForIdleSync();
+                assertNotNull("Accepted taps have visible feedback before the stalled save finishes", square(0).getForeground());
             }
             assertEquals("No early publication during stalled save", "", ((TextView) square(0)).getText().toString());
             release.countDown();
-            long deadline = SystemClock.uptimeMillis() + 5000;
-            while (progress(mode).undoCount() < 2 && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(30);
-            settle();
+            ViewportChecks.awaitEdits(getInstrumentation(), activity);
+            assertNull("Pending feedback clears once queued edits settle", square(0).getForeground());
+            if (failSave) {
+                assertTrue(((TextView) tagged("puzzle-feedback")).getText().toString().startsWith("Could not save"));
+                assertEquals(0, ((Nonogram) read(mode)).values[0]);
+                assertEquals(0, progress(mode).undoCount());
+                return;
+            }
             assertEquals("Two rapid real taps persist a cross, not blank", 2, ((Nonogram) read(mode)).values[0]);
             assertEquals(2, progress(mode).undoCount());
             tap(require(findDescription("Undo last move"))); assertEquals(1, ((Nonogram) read(mode)).values[0]);

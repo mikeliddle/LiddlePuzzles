@@ -323,8 +323,11 @@ layout-changing feedback or idle explanatory text.
   tap returns to default tap 0 / hold 1. A hold still enters/clears 1 with a tool
   selected. Do not leave a stale cell-first target. Fixed
   underlined givens remain immutable. Expose current mode and tool selection.
-- **Futoshiki:** select a square, then enter a bank number or use Erase to remove
-  that square's player entry. This local action is not Clear/Reset.
+- **Futoshiki:** like Sudoku, select an editable square for one number entry,
+  or arm a bank number to enter it on successive editable squares. The same
+  key disarms it; another switches it; tapping a given leaves it armed. Tap
+  outside the grid and bank to clear the tool, except Settings preserves it.
+  Erase removes only the selected square's player entry; it is not Clear/Reset.
 - **Numberlink:** drag from an endpoint or existing path, extending only through
   orthogonal free squares. Backtracking retracts the current route; starting
   inside an existing route preserves its endpoint prefix and replaces its tail.
@@ -452,9 +455,12 @@ not new success claims or a hidden-answer oracle:
 - **Takuzu:** bounded digit/erase outlines; coordinated row/column wave only
   when the full line obeys balance, triples and uniqueness, without intersecting
   visible contradictions.
-- **Nonograms:** fill/cross/erase outlines; line wave only when every square is
-  explicitly decided, runs match, and intersecting clues remain feasible.
-  Blank/undecided cells are not silently certified empty.
+- **Nonograms:** a static dashed outline acknowledges accepted input while a
+  save is pending. Checks, crosses, and clues still show only durable progress;
+  failed saves clear pending feedback. Saved edits settle over 180ms and line
+  waves over 320ms; new touches interrupt the motion. Waves require every square
+  in the line to be explicitly decided, matching runs and feasible intersecting
+  clues. Blank/undecided cells are not silently certified empty.
 - **Futoshiki:** entry/erase outlines; full distinct-number row/column wave
   only without intersecting duplicate/entered-inequality errors.
 - **Numberlink:** finger tracking stays exact, with no interpolation or delay.

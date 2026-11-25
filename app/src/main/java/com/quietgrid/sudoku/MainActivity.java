@@ -1241,6 +1241,11 @@ public final class MainActivity extends Activity {
                 + "  \u00b7  " + time(game.elapsedMillis), 24, palette.accent);
         details.setGravity(Gravity.CENTER);
         result.addView(details, new LinearLayout.LayoutParams(-1, dp(64)));
+        if (BuildConfig.LOCAL_PUZZLE_SHARING) {
+            ImageButton share = navigationButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
+            share.setOnClickListener(v -> sharePuzzle());
+            result.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }
         if (limited()) {
             TextView limit = text(ResponsibleMode.LIMIT_MESSAGE, 14, palette.muted);
             limit.setGravity(Gravity.CENTER);
@@ -1359,7 +1364,9 @@ public final class MainActivity extends Activity {
     private void sharePuzzle() {
         if (!BuildConfig.LOCAL_PUZZLE_SHARING || game == null) return;
         saveSession.dispatch(owner -> {
-            if (owner.game != null) PuzzleSharing.send(owner, "Sudoku", SudokuShare.link(owner.game.clues));
+            Game saved = owner.committedGame;
+            if (saved != null) PuzzleSharing.send(owner, "Sudoku", SudokuShare.link(saved.clues),
+                    saved.won() ? saved.elapsedMillis : 0);
         });
     }
 

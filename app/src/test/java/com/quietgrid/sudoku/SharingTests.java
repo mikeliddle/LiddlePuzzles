@@ -70,10 +70,11 @@ public final class SharingTests {
         check(LocalShareLink.toTransport(link, "liddlepuzzles-local").equals(link)
                 && LocalShareLink.fromTransport(link, "liddlepuzzles-local").equals(link),
                 "Validation still shares and receives its own custom scheme");
-        for (String pasted : new String[]{"  " + web + "  ", legacy, fragment}) {
+        for (String pasted : new String[]{"  " + web + "  ", legacy, fragment, "This puzzle took me 2:34!  " + web}) {
             check(LocalShareLink.manualTransport(pasted, "liddlepuzzles").equals(web), "Release paste resolves to HTTPS");
         }
-        for (String pasted : new String[]{web, link, fragment}) {
+        for (String pasted : new String[]{web, link, fragment, "This puzzle took me \u0662:\u0663\u0664! " + web,
+                "This puzzle took me 2:34!  " + link}) {
             check(LocalShareLink.manualTransport(pasted, "liddlepuzzles-local").equals(link),
                     "Validation paste opens inside the validation package");
         }
@@ -88,7 +89,10 @@ public final class SharingTests {
                 web.replace("share/#", "share#"), web.replace("share/#", "share/?q=1#"),
                 web.replace("share/#", "share/#%73"), web.replace("/v1/", "/v2/"),
                 web.replace("#sudoku/", "#minesweeper/"), web + "#extra", web + "?q=1",
-                web + "A".repeat(512), legacy + "#extra", legacy + "?q=1", link}) {
+                web + "A".repeat(512), legacy + "#extra", legacy + "?q=1", link,
+                "This puzzle took me 2:60!  " + web, "This puzzle took me 2:34!  " + web + " " + web,
+                "This puzzle took me 2:34!  " + web.replace("mllab.fyi", "other.mllab.fyi"),
+                "This puzzle took me 2:34!  " + web + " trailing text", "Try this! " + web}) {
             try {
                 LocalShareLink.fromTransport(invalid, "liddlepuzzles");
                 throw new AssertionError("Invalid release VIEW link accepted");

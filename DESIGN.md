@@ -230,10 +230,14 @@ information by adding Undo to Minesweeper.
 On sharing-enabled builds, **Shared puzzles** is below the game list on Home.
 The separate page has a labeled single-line **Puzzle link** field and one
 primary **Launch puzzle** action. Accept the public HTTPS share link, the current
-build's custom scheme, or the bare puzzle link without a scheme. Keep invalid
+build's custom scheme, the bare puzzle link without a scheme, or the complete
+“This puzzle took me…” share message. Keep invalid
 input for correction, and let Back return to Home.
 Manual entry makes non-tappable links usable without reading the clipboard
 automatically. Do not add controls to the fitted board for this entry flow.
+Sharing a completed puzzle with a recorded active time shows the time in the
+message, not the link. Keep the existing untimed invitation otherwise. Sudoku
+also offers Share on its completion screen.
 
 **Mode menus follow Sudoku's submenu style.** Hub -> named mode menu ->
 Resume/current-board view or clearly labeled new-puzzle choices. Use the same

@@ -34,11 +34,12 @@ collection and classification files; this version leaves them untouched and
 does not read, write or use them. A previously imported active puzzle remains
 resumable from the ordinary current-game save.
 
-Where puzzle sharing is available, choosing Share hands only the puzzle's
-starting definition to the Android Sharesheet, not your moves, notes, answers,
-history or solve time. The app you choose handles sending the link under its
-own privacy policy. A recipient's shared-puzzle progress is stored separately
-on their device.
+Where puzzle sharing is available, choosing Share opens the Android Sharesheet
+with a link containing only the puzzle's starting definition. For completed
+puzzles with a recorded solve time, the outgoing message also shows that time
+as text outside the link. Moves, notes, answers and history are not sent.
+The app you choose to send the message handles it under its own privacy policy.
+A recipient's shared-puzzle progress is stored separately on their device.
 
 For HTTPS puzzle links, the puzzle definition is in the URL fragment, which
 is not included in the browser's HTTP request to the fallback page. The

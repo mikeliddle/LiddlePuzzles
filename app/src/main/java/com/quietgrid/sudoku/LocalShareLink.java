@@ -1,6 +1,7 @@
 package com.quietgrid.sudoku;
 
 import java.util.Base64;
+import java.util.regex.Pattern;
 
 /** Strict, bounded local transport. Version and mode define all rules, not device defaults. */
 public final class LocalShareLink {
@@ -9,6 +10,9 @@ public final class LocalShareLink {
     private static final String WEB_PREFIX = "https://mllab.fyi/liddle-puzzles/share/#";
     private static final int MAX_LENGTH = 512;
     static final int MAX_PASTE_LENGTH = 1024;
+    // Match the share_solved_puzzle_message envelope, including localized duration digits.
+    private static final Pattern SOLVED_MESSAGE = Pattern.compile(
+            "This puzzle took me \\p{Nd}{1,15}:(\\p{Nd})\\p{Nd}! {1,2}(\\S+)");
 
     private LocalShareLink() {}
 
@@ -34,7 +38,10 @@ public final class LocalShareLink {
     static String manualTransport(String text, String scheme) {
         if (text.length() > MAX_PASTE_LENGTH) throw new IllegalArgumentException("This puzzle link is too long.");
         String link = text.trim();
-        if (link.indexOf(':') < 0) link = scheme + "://" + link;
+        var message = SOLVED_MESSAGE.matcher(link);
+        if (message.matches() && Character.digit(message.group(1).codePointAt(0), 10) < 6) {
+            link = message.group(2);
+        } else if (link.indexOf(':') < 0) link = scheme + "://" + link;
         String canonical = fromTransport(link, link.startsWith(WEB_PREFIX) ? RELEASE_SCHEME : scheme);
         decode(canonical, kind(canonical));
         return toTransport(canonical, scheme);

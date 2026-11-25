@@ -313,8 +313,11 @@ public final class DailyWordActivity extends Activity {
         if (BuildConfig.LOCAL_PUZZLE_SHARING) {
             ImageButton share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> saveSession.dispatch(owner -> {
-                if (owner.game != null && !owner.checkDate())
-                    PuzzleSharing.send(owner, "Daily Word " + owner.date, WordShare.link(owner.game, owner.date));
+                if (owner.game != null && !owner.checkDate()) {
+                    DailyWord.Day day = owner.game.day(owner.date);
+                    PuzzleSharing.send(owner, "Daily Word " + owner.date, WordShare.link(owner.game, owner.date),
+                            owner.game.won(day) ? day.elapsedMillis() : 0);
+                }
             }));
             clockRow.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
         }

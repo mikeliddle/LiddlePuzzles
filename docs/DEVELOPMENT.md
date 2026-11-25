@@ -85,9 +85,13 @@ Tokens use canonical unpadded URL-safe Base64. The internal custom format is
 capped at 512 characters; HTTPS swaps the fixed prefix without expanding the
 puzzle payload budget. Versions, dimensions, clue ranges and canonical encodings are
 checked. Generated imports are checked for a unique solution off the UI thread
-under finite budgets. Only the starting definition is shared, never moves,
-notes, history, solve time, or answers. Recipients resume separate private
-progress for the same definition; normal progress and records are unchanged.
+under finite budgets. The link encodes only the starting definition, never
+moves, notes, history, solve time, or answers. When the saved puzzle has been
+solved and has a positive final active time, the Sharesheet message includes
+that time outside the link. Manual paste accepts that message format and
+validates its single link with the same bounded parser. Recipients resume
+separate private progress for the same definition; normal progress and records
+are unchanged.
 Shared finishes can count toward the same Responsible mode limit.
 
 Whole-board Clear uses the ordinary durable play edit, not a replacement or

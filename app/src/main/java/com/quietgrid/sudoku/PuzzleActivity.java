@@ -544,7 +544,9 @@ public final class PuzzleActivity extends Activity {
         if (BuildConfig.LOCAL_PUZZLE_SHARING && mode != Mode.MINESWEEPER) {
             share = iconButton(getString(R.string.share_puzzle_local), R.drawable.ic_share);
             share.setOnClickListener(v -> saveSession.dispatch(owner -> {
-                if (owner.game != null) PuzzleSharing.send(owner, owner.mode.title, PuzzleShare.link(owner.game));
+                PuzzleProgress saved = owner.progress;
+                if (saved != null) PuzzleSharing.send(owner, owner.mode.title, PuzzleShare.link(saved.game),
+                        saved.game.solved() ? saved.elapsedMillis : 0);
             }));
             clockRow.addView(share, new LinearLayout.LayoutParams(dp(48), dp(48)));
         }

@@ -27,9 +27,10 @@ crash reporting, or backend. Settings, puzzle state, entries, history and
 times are app-private on-device data. Android cloud backup is disabled;
 device-maker transfers can behave independently.
 
-Share is an explicit player action: the app hands a starting puzzle link to
-the Android Sharesheet, and the player selects the receiving app. The payload
-does not contain moves, guesses, notes, history, solve times or answers.
+Share is an explicit player action: the app hands a message to the Android
+Sharesheet, and the player selects the receiving app. A recorded completion
+time may appear as message text; the starting-puzzle link never contains
+solve time, moves, guesses, notes, history or answers.
 Google's [Data safety guidance](https://support.google.com/googleplay/android-developer/answer/10787469)
 excludes locally processed data and exempts expected, specifically
 user-initiated third-party transfers from sharing disclosure. About links open

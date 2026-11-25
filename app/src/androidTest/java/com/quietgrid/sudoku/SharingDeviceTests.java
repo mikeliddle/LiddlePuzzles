@@ -211,6 +211,35 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
             assertNotNull(sudoku); assertTrue(sudoku.performClick());
         });
         NativeSaveAwaiter.await(getInstrumentation(), activity);
+        assertEquals(activity.getString(R.string.share_puzzle_message, "Sudoku", link(true)), shareText());
+    }
+
+    public void testCompletedSudokuSharesRecordedTimeOutsideLink() throws Exception {
+        startCompletedSharedSudoku(154321);
+
+        String text = shareText();
+        assertEquals("This puzzle took me " + ActivePlayTimer.label(154321) + "!  " + link(false), text);
+        String pasted = LocalShareLink.manualTransport(text, BuildConfig.PUZZLE_LINK_SCHEME);
+        Game recipient = SudokuShare.open(LocalShareLink.fromTransport(pasted, BuildConfig.PUZZLE_LINK_SCHEME));
+        assertTrue(Arrays.equals(clues(false), recipient.values));
+        assertEquals(0L, recipient.elapsedMillis);
+    }
+
+    public void testCompletedSudokuWithoutRecordedTimeKeepsInvitation() throws Exception {
+        startCompletedSharedSudoku(0);
+        assertEquals(activity.getString(R.string.share_puzzle_message, "Sudoku", link(false)), shareText());
+    }
+
+    private void startCompletedSharedSudoku(long elapsedMillis) throws Exception {
+        Game solved = SudokuShare.open(link(false));
+        System.arraycopy(solved.solution, 0, solved.values, 0, solved.values.length);
+        solved.elapsedMillis = elapsedMillis;
+        Files.write(sharedFile(false).toPath(), encode(solved));
+        startLink(link(false));
+        assertTrue(game().won());
+    }
+
+    private String shareText() {
         Intent[] chooser = {null};
         Instrumentation.ActivityMonitor monitor = new Instrumentation.ActivityMonitor() {
             @Override public Instrumentation.ActivityResult onStartActivity(Intent intent) {
@@ -234,7 +263,7 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
             assertNotNull(send);
             assertEquals(Intent.ACTION_SEND, send.getAction());
             assertEquals("text/plain", send.getType());
-            assertEquals(activity.getString(R.string.share_puzzle_message, "Sudoku", link(true)), send.getStringExtra(Intent.EXTRA_TEXT));
+            return send.getStringExtra(Intent.EXTRA_TEXT);
         } finally { getInstrumentation().removeMonitor(monitor); }
     }
 
@@ -304,6 +333,8 @@ public final class SharingDeviceTests extends InstrumentationTestCase {
         screenshot.recycle();
     }
     private static View findText(View view, String text) {
+        CharSequence description = view.getContentDescription();
+        if (description != null && text.contentEquals(description)) return view;
         if (view instanceof TextView label && text.equals(label.getText().toString())) return view;
         if (view instanceof ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) {
             View found = findText(group.getChildAt(i), text);

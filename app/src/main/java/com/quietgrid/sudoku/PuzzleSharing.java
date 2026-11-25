@@ -17,11 +17,14 @@ final class PuzzleSharing {
         return LocalShareLink.fromTransport(intent.getDataString(), BuildConfig.PUZZLE_LINK_SCHEME);
     }
 
-    static void send(Activity activity, String title, String link) {
+    static void send(Activity activity, String title, String link, long solveMillis) {
         if (!BuildConfig.LOCAL_PUZZLE_SHARING) return;
         String transport = LocalShareLink.toTransport(link, BuildConfig.PUZZLE_LINK_SCHEME);
+        String message = solveMillis > 0
+                ? activity.getString(R.string.share_solved_puzzle_message, ActivePlayTimer.label(solveMillis), transport)
+                : activity.getString(R.string.share_puzzle_message, title, transport);
         Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                .putExtra(Intent.EXTRA_TEXT, activity.getString(R.string.share_puzzle_message, title, transport));
+                .putExtra(Intent.EXTRA_TEXT, message);
         try { activity.startActivity(Intent.createChooser(send, activity.getString(R.string.share_puzzle_local))); }
         catch (ActivityNotFoundException ex) {
             android.util.Log.e("PuzzleSharing", "No text sharing activity", ex);

@@ -20,6 +20,7 @@
     <string name="close_shared_sudoku">Close shared puzzle</string>
     <string name="share_puzzle_local">Share starting puzzle</string>
     <string name="share_puzzle_message">%1$s in Liddle Puzzles. If the link isn\'t tappable, copy the link and open Shared puzzles in the app.\n%2$s</string>
+    <string name="share_solved_puzzle_message">"This puzzle took me %1$s!  %2$s"</string>
     <string name="shared_puzzles">Shared puzzles</string>
     <string name="puzzle_link_label">Puzzle link</string>
     <string name="paste_puzzle_hint">Paste or enter a link</string>

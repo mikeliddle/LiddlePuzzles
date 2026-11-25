@@ -250,10 +250,9 @@ jobs:
           $existing = Invoke-WebRequest "https://api.github.com/repos/mikeliddle/LiddlePuzzles/git/ref/tags/$tag" -Headers $headers -SkipHttpErrorCheck
           if ($existing.StatusCode -ne 404) { throw 'Release tag already exists or could not be checked; refusing to reuse it.' }
           $notes = @"
-          - Share starting puzzles in seven modes. If a link is not tappable, paste it into Shared puzzles on Home.
-          - Redo moves in games that already offer Undo. A new move clears Redo.
-          - Nonogram taps are more forgiving when your finger moves inside the same square.
-          - Settings > About shows your installed version and links to the latest release.
+          - Share starting puzzles in seven modes with HTTPS links. Older links still open, and you can paste links into Shared puzzles on Home.
+          - Open the privacy policy from Settings > About.
+          - Daily Word removes 25 terms from accepted guesses without changing daily answers or existing saves.
 
           Reviewed source: $env:GITHUB_SHA
           Android versionCode: $env:VERSION_CODE

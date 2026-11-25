@@ -37,7 +37,7 @@ untrusted even with these controls: runner network access is still available.
 ## Sharing routes and format
 
 Published 1.1.6 uses `liddlepuzzles://<mode>/v1/<token>` and cannot open HTTPS
-links natively. The release variant in this source tree shares
+links natively. The 1.1.7 release variant shares
 `https://mllab.fyi/liddle-puzzles/share/#<mode>/v1/<token>` through the Android
 Sharesheet and still opens the old release scheme. Validation continues to
 advertise and send only `liddlepuzzles-local://<mode>/v1/<token>` in its separate

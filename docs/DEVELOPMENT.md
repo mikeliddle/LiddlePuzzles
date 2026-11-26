@@ -16,6 +16,42 @@ or the platform default configured in `app/build.gradle`).
 `scripts/New-ReleaseSigning.ps1` is for initial key creation, not replacement
 of an existing signing key.
 
+### Automatic release versioning
+
+On this branch, run **Android release** on `main` with mode **release** to
+publish. Only the owner can request a release, and the existing protected-main
+checks and `android-release` environment approvals still apply. No release is
+published just by merging this workflow change.
+
+Before building, the workflow chooses one patch above the highest of the
+`app/build.gradle` baseline and existing `vMAJOR.MINOR.PATCH` tags/releases in
+that major/minor series. It also increments the highest Android `versionCode`
+from the baseline and release notes. All history pages are read; drafts and
+existing tags reserve their patch numbers. Releases at or above the baseline
+must contain exactly one `Android versionCode: N` metadata line. Older releases
+without that line are covered by the baseline. A newer major/minor series or
+exhausted version range fails explicitly; update the baseline deliberately
+when starting a new major/minor series.
+
+The selected values are passed as paired Gradle properties
+`-PreleaseVersionName=1.1.8 -PreleaseVersionCode=11` (example only), checked
+against the unsigned APK, and carried through signing to the APK filename,
+release metadata and `v1.1.8` tag. The tag points to the reviewed `main` commit;
+the workflow does **not** commit a bump or bypass branch protection. Source
+archives and ordinary local builds therefore keep the checked-in baseline,
+not necessarily the version of the distributed APK. With published 1.1.7
+(code 10) and no newer reserved versions, the next publish selects 1.1.8
+(code 11).
+
+Publication uploads a draft with checksums and generated GitHub release notes,
+then makes it public. Publishing the same source again is allowed and assigns
+another patch version. If uploading or publishing fails, inspect the existing
+draft/tag before starting another run; retries never overwrite an existing
+tag. Mode **verify** builds the baseline without calculating or reserving a
+version, signing, or publishing. Version selection has credential-free checks:
+`pwsh -NoProfile -File scripts/Test-ReleaseVersion.ps1`, also run by both
+workflows.
+
 The [Android smoke workflow](../.github/workflows/android-pr.yml) covers PRs,
 direct pushes to `main`, and manual dispatch, using pinned API 29 and 35 Google
 APIs images. It builds and inspects both variants, but installs only

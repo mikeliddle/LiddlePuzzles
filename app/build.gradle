@@ -6,6 +6,15 @@ def unsignedRelease = providers.gradleProperty('unsignedRelease').orNull
 if (unsignedRelease != null && unsignedRelease != 'true') {
     throw new GradleException('unsignedRelease must be explicitly true, or omitted for a signed local release.')
 }
+def releaseVersionName = providers.gradleProperty('releaseVersionName').orNull
+def releaseVersionCode = providers.gradleProperty('releaseVersionCode').orNull
+if ((releaseVersionName == null) != (releaseVersionCode == null)) {
+    throw new GradleException('releaseVersionName and releaseVersionCode must be supplied together.')
+}
+if (releaseVersionName != null && (!(releaseVersionName ==~ /(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/) ||
+        !(releaseVersionCode ==~ /[1-9][0-9]*/) || releaseVersionCode.toBigInteger() > 2100000000)) {
+    throw new GradleException('Release version must be major.minor.patch with an Android versionCode between 1 and 2100000000.')
+}
 def signingPath = System.getenv('SUDOKU_SIGNING_DIR')
 def localAppData = System.getenv('LOCALAPPDATA')
 def signingDirectory = signingPath
@@ -47,8 +56,8 @@ android {
         applicationId 'fyi.mllab.puzzle'
         minSdk 29
         targetSdk 36
-        versionCode 10
-        versionName '1.1.7'
+        versionCode releaseVersionCode != null ? releaseVersionCode.toInteger() : 10
+        versionName releaseVersionName != null ? releaseVersionName : '1.1.7'
         testInstrumentationRunner 'android.test.InstrumentationTestRunner'
         manifestPlaceholders = [appLabel: '@string/app_name']
         buildConfigField 'boolean', 'LOCAL_PUZZLE_SHARING', 'false'

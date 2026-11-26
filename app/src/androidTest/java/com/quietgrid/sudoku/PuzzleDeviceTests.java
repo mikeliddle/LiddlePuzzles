@@ -1160,6 +1160,58 @@ public final class PuzzleDeviceTests extends InstrumentationTestCase {
         assertEquals(undoCount, progress(mode).undoCount());
     }
 
+    public void testNonogramDragPaintsBlankCellsAndSavesOneUndoStep() throws Exception {
+        Mode mode = Mode.NONOGRAM;
+        Nonogram initial = (Nonogram) PuzzleStore.decode(mode, fixture(mode, "initial"));
+        initial.values[1] = 2;
+        initial.values[2] = 1;
+        write(mode, PuzzleStore.encode(initial));
+        launch(mode);
+
+        paintStroke(0, 4, false, true);
+        assertTrue(Arrays.equals(initial.values, ((Nonogram) read(mode)).values));
+        assertEquals(0, progress(mode).undoCount());
+        paintStroke(0, 4, false, false);
+        assertTrue(Arrays.equals(new int[]{1, 2, 1, 1, 1}, Arrays.copyOf(((Nonogram) read(mode)).values, 5)));
+        assertEquals(1, progress(mode).undoCount());
+
+        paintStroke(5, 9, true, false);
+        assertTrue(Arrays.equals(new int[]{2, 2, 2, 2, 2}, Arrays.copyOfRange(((Nonogram) read(mode)).values, 5, 10)));
+        assertEquals(2, progress(mode).undoCount());
+        tap(require(findDescription("Undo last move")));
+        assertTrue(Arrays.equals(new int[5], Arrays.copyOfRange(((Nonogram) read(mode)).values, 5, 10)));
+        paintStroke(0, 4, true, false);
+        assertEquals(1, progress(mode).undoCount());
+        assertTrue("A stroke over only marked cells preserves Redo", progress(mode).canRedo());
+        tap(require(findDescription("Redo last move")));
+        assertTrue(Arrays.equals(new int[]{2, 2, 2, 2, 2}, Arrays.copyOfRange(((Nonogram) read(mode)).values, 5, 10)));
+    }
+
+    private void paintStroke(int start, int end, boolean hold, boolean cancel) throws Exception {
+        android.graphics.RectF from = ViewportChecks.bounds(square(start));
+        android.graphics.RectF to = ViewportChecks.bounds(square(end));
+        long startTime = SystemClock.uptimeMillis();
+        long moveTime = startTime + (hold ? BinaryPress.timeout(getInstrumentation().getTargetContext()) + 1 : 1);
+        getInstrumentation().runOnMainSync(() -> {
+            MotionEvent down = MotionEvent.obtain(startTime, startTime, MotionEvent.ACTION_DOWN, from.centerX(), from.centerY(), 0);
+            MotionEvent move = MotionEvent.obtain(startTime, moveTime, MotionEvent.ACTION_MOVE, to.centerX(), to.centerY(), 0);
+            MotionEvent finish = MotionEvent.obtain(startTime, moveTime + 1,
+                    cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, to.centerX(), to.centerY(), 0);
+            try {
+                View decor = activity.getWindow().getDecorView();
+                int[] location = new int[2];
+                decor.getLocationOnScreen(location);
+                for (MotionEvent event : new MotionEvent[]{down, move, finish}) {
+                    event.offsetLocation(-location[0], -location[1]);
+                    activity.dispatchTouchEvent(event);
+                    if (cancel && event == move) assertEquals("\u2713", ((Button) square(3)).getText().toString());
+                    if (cancel && event == finish) assertEquals("", ((Button) square(3)).getText().toString());
+                }
+            } finally { down.recycle(); move.recycle(); finish.recycle(); }
+        });
+        ViewportChecks.awaitEdits(getInstrumentation(), activity);
+    }
+
     public void testFutoshikiSquareAndNumberFirstEntry() throws Exception {
         Mode mode = Mode.FUTOSHIKI;
         write(mode, fixture(mode, "initial")); launch(mode);

@@ -11,6 +11,7 @@ tasks.register('compileEngineTests', JavaCompile) {
         'app/src/main/java/com/quietgrid/sudoku/WordShare.java',
         'app/src/main/java/com/quietgrid/sudoku/DailyWord.java',
         'app/src/main/java/com/quietgrid/sudoku/ActivePlayTimer.java',
+        'app/src/main/java/com/quietgrid/sudoku/NonogramStroke.java',
         'app/src/main/java/com/quietgrid/sudoku/DurableFile.java',
         'app/src/main/java/com/quietgrid/sudoku/PuzzleSave.java',
         'app/src/main/java/com/quietgrid/sudoku/SaveQueue.java',

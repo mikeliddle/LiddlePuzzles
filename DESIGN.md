@@ -294,9 +294,16 @@ or layout change to teach the gesture. Do not invent holds for unrelated actions
 | --- | --- | --- | --- |
 | Minesweeper | Reveal (or use an explicitly armed Flag tool) | Toggle flag, never reveal on release | Flag tool; named native long-click action |
 | Takuzu, no tool | Enter 0; repeat 0 to clear | Enter 1; repeat 1 to clear | 0/1/Erase tools; named native long-click action |
-| Nonograms | Cycle blank -> check -> X -> blank on every tap, with no double-tap delay | Cross empty; repeat cross to clear | Named native long-click action, including native keyboard long-click |
+| Nonograms | Cycle blank -> check -> X -> blank on every tap, with no double-tap delay | On release, cross a blank/check or clear an X | Named native long-click action, including native keyboard long-click |
 | Slitherlink | Line; repeat line to clear | Cross out; repeat cross to clear | Named virtual-edge actions; native edge selector with Line/Cross/Cycle |
 | Sudoku, digit selected | Enter the selected digit, respecting the explicit Notes mode | Toggle that digit's note without changing the persistent Notes mode | Notes tool; named virtual-square long-click action and large controls |
+
+In Nonograms, drag into another square to paint checks, or hold first and
+then drag to paint Xs. The brush includes the starting square and every
+square crossed, but only changes blanks. Marks preview under the finger
+without animation. Lifting commits the stroke as one Undo step, with no extra
+tap or hold action. Multitouch, cancellation and loss of focus discard the
+preview. Clue gutters are not playable cells.
 
 Settings Back pops the page actually entered: global Settings -> game settings
 returns to global Settings; a game/menu -> its settings returns directly to that

@@ -25,6 +25,12 @@ public final class Nonogram implements UndoablePuzzle {
         if (mark != 1 && mark != 2) throw new IllegalArgumentException("Expected fill or cross.");
         if (!solved()) values[cell] = values[cell] == mark ? 0 : mark;
     }
+    public void paint(java.util.BitSet cells, int mark) {
+        if (mark != 1 && mark != 2) throw new IllegalArgumentException("Expected fill or cross.");
+        if (solved()) return;
+        for (int cell = cells.nextSetBit(0); cell >= 0; cell = cells.nextSetBit(cell + 1))
+            if (values[cell] == 0) values[cell] = mark;
+    }
     @Override public boolean solved() {
         int n = size();
         for (int i = 0; i < n; i++) {

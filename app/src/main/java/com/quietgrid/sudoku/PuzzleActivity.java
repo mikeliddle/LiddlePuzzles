@@ -15,6 +15,7 @@ import android.util.SparseIntArray;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -31,6 +32,7 @@ import com.quietgrid.sudoku.puzzles.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -50,6 +52,8 @@ public final class PuzzleActivity extends Activity {
     private final List<TextView> loopClues = new ArrayList<>();
     private final List<View> futoKeys = new ArrayList<>();
     private final SparseIntArray pendingPictureCells = new SparseIntArray();
+    private NonogramStroke pictureStroke;
+    private Button pictureTouch;
     private final List<View> sideControls = new ArrayList<>();
     private final MinesFeedback minesFeedback = new MinesFeedback();
     private TextView[] pictureClues = new TextView[0];
@@ -439,20 +443,117 @@ public final class PuzzleActivity extends Activity {
 
     private void pictureCell(int cell, boolean cross) {
         if (busy || game.solved() || limited()) return;
-        pendingPictureCells.put(cell, pendingPictureCells.get(cell) + 1);
-        showPicturePending(cell);
+        BitSet changed = new BitSet();
+        changed.set(cell);
+        queuePictureEdit(changed, picture -> {
+            if (cross) picture.mark(cell, 2); else picture.cycle(cell);
+        });
+    }
+
+    private void queuePictureEdit(BitSet changed, java.util.function.Consumer<Nonogram> action) {
+        for (int cell = changed.nextSetBit(0); cell >= 0; cell = changed.nextSetBit(cell + 1)) {
+            pendingPictureCells.put(cell, pendingPictureCells.get(cell) + 1);
+            showPicturePending(cell);
+        }
         saveSession.dispatch(owner -> owner.change(next -> {
             Nonogram picture = (Nonogram) next;
-            if (cross) picture.mark(cell, 2); else picture.cycle(cell);
+            action.accept(picture);
             return null;
         }));
         // The next queued action runs after this edit is durable (or determined to be a no-op).
         saveSession.dispatch(owner -> {
             if (owner != this) return;
-            int remaining = pendingPictureCells.get(cell) - 1;
-            if (remaining > 0) pendingPictureCells.put(cell, remaining); else pendingPictureCells.delete(cell);
-            showPicturePending(cell);
+            for (int cell = changed.nextSetBit(0); cell >= 0; cell = changed.nextSetBit(cell + 1)) {
+                int remaining = pendingPictureCells.get(cell) - 1;
+                if (remaining > 0) pendingPictureCells.put(cell, remaining); else pendingPictureCells.delete(cell);
+                if (cell < cells.size()) showPicturePending(cell);
+            }
         });
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void attachPictureTouch(Button square, int index) {
+        BinaryPress.secondaryAction(square, "Enter or clear cross", () -> secondaryCell(index));
+        square.setOnTouchListener((view, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                cancelPictureStroke();
+                if (!square.isEnabled() || !focused || !resumed || busy || limited()) return true;
+                pictureTouch = square;
+                square.drawableHotspotChanged(event.getX(), event.getY());
+                square.setPressed(true);
+                pictureStroke = new NonogramStroke(game.size(), pictureX(event.getX()), pictureY(event.getY()),
+                        ViewConfiguration.get(this).getScaledTouchSlop() / (double) square.getWidth(),
+                        event.getDownTime() + BinaryPress.timeout(this));
+            } else if (square == pictureTouch && pictureStroke != null) {
+                if (event.getPointerCount() != 1 || action == MotionEvent.ACTION_CANCEL) cancelPictureStroke();
+                else if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+                    for (int i = 0; i < event.getHistorySize(); i++) {
+                        pictureStroke.sample(pictureX(event.getHistoricalX(i)), pictureY(event.getHistoricalY(i)),
+                                event.getHistoricalEventTime(i));
+                    }
+                    pictureStroke.sample(pictureX(event.getX()), pictureY(event.getY()), event.getEventTime());
+                    if (action == MotionEvent.ACTION_UP) finishPictureStroke(square);
+                    else if (pictureStroke.paint() != 0) {
+                        square.setPressed(false);
+                        updatePicturePreview();
+                    }
+                }
+            }
+            return true;
+        });
+    }
+
+    // View dispatch has already inverted the fitted viewport scale. Work in the grid's local units.
+    private double pictureX(float x) {
+        Button first = cells.get(0);
+        double fromFirst = (pictureTouch.getLeft() - first.getLeft() + (double) x) / first.getWidth();
+        return cells.get(1).getLeft() > first.getLeft() ? fromFirst : Math.nextDown(1 - fromFirst);
+    }
+
+    private double pictureY(float y) {
+        View row = (View) pictureTouch.getParent(), firstRow = (View) cells.get(0).getParent();
+        return (row.getTop() - firstRow.getTop() + (double) y) / cells.get(0).getHeight();
+    }
+
+    private static String pictureMark(int value) {
+        return value == 1 ? "\u2713" : value == 2 ? "\u00d7" : "";
+    }
+
+    private void updatePicturePreview() {
+        if (pictureStroke == null || pictureStroke.paint() == 0) return;
+        Nonogram picture = (Nonogram) game;
+        BitSet crossed = pictureStroke.crossed;
+        for (int i = crossed.nextSetBit(0); i >= 0; i = crossed.nextSetBit(i + 1))
+            if (picture.values[i] == 0) cells.get(i).setText(pictureMark(pictureStroke.paint()));
+    }
+
+    private void cancelPictureStroke() {
+        if (pictureStroke == null) return;
+        pictureTouch.setPressed(false);
+        if (pictureStroke.paint() != 0) {
+            Nonogram picture = (Nonogram) game;
+            BitSet crossed = pictureStroke.crossed;
+            for (int i = crossed.nextSetBit(0); i >= 0; i = crossed.nextSetBit(i + 1))
+                cells.get(i).setText(pictureMark(picture.values[i]));
+        }
+        pictureStroke = null;
+        pictureTouch = null;
+    }
+
+    private void finishPictureStroke(Button square) {
+        NonogramStroke stroke = pictureStroke;
+        cancelPictureStroke();
+        if (!square.isEnabled() || !focused || !resumed || busy || limited()) return;
+        int mark = stroke.paint();
+        if (mark != 0) {
+            Nonogram picture = (Nonogram) game;
+            BitSet changed = stroke.crossed;
+            for (int i = changed.nextSetBit(0); i >= 0; i = changed.nextSetBit(i + 1))
+                if (picture.values[i] != 0) changed.clear(i);
+            if (!changed.isEmpty()) queuePictureEdit(changed, next -> next.paint(changed, mark));
+        } else if (stroke.hold()) square.performLongClick();
+        else if (stroke.tap()) square.post(square::performClick);
     }
 
     private void showPicturePending(int cell) {
@@ -640,6 +741,8 @@ public final class PuzzleActivity extends Activity {
     }
 
     private void showBoard() {
+        cancelPictureStroke();
+        clearPicturePending();
         for (View control : sideControls) if (control.getParent() instanceof android.view.ViewGroup)
             ((android.view.ViewGroup) control.getParent()).removeView(control);
         sideControls.clear();
@@ -755,10 +858,10 @@ public final class PuzzleActivity extends Activity {
             for (int c = 0; c < n; c++) {
                 int index = r * n + c; Button square = button("");
                 square.setTextSize(20); square.setTag("cell-" + index); square.setOnClickListener(v -> cell(index));
-                if (game instanceof Minesweeper || game instanceof Takuzu || game instanceof Nonogram)
+                if (game instanceof Nonogram) attachPictureTouch(square, index);
+                else if (game instanceof Minesweeper || game instanceof Takuzu)
                     BinaryPress.attach(square, game instanceof Minesweeper ? "Toggle flag"
-                                    : game instanceof Nonogram ? "Enter or clear cross" : "Enter or clear 1",
-                            () -> secondaryCell(index));
+                            : "Enter or clear 1", () -> secondaryCell(index));
                 cells.add(square); line.addView(square, new LinearLayout.LayoutParams(cellSize, cellSize));
                 if (game instanceof Futoshiki && c < n - 1) {
                     int sign = ((Futoshiki) game).horizontal[r * (n - 1) + c];
@@ -833,6 +936,7 @@ public final class PuzzleActivity extends Activity {
         }
         retry.setVisibility((loadFailed || generationFailed) && !busy ? View.VISIBLE : View.GONE);
         boolean terminal = game != null && (game.solved() || game.lost());
+        if (showingLimit || busy || terminal) cancelPictureStroke();
         if (terminal) { binaryArmed = -1; selected = -1; futoArmed = 0; }
         String[] binaryErrors = game instanceof Takuzu ? ((Takuzu) game).errors() : null;
         String[] futoErrors = game instanceof Futoshiki ? ((Futoshiki) game).errors() : null;
@@ -899,7 +1003,7 @@ public final class PuzzleActivity extends Activity {
                         : binaryArmed == 2 ? ", tap to erase" : ", tap to enter " + binaryArmed;
             } else if (game instanceof Nonogram) {
                 int value = ((Nonogram) game).values[i];
-                label = value == 1 ? "\u2713" : value == 2 ? "\u00d7" : ""; meaning = value == 1 ? "filled" : value == 2 ? "crossed empty" : "undecided";
+                label = pictureMark(value); meaning = value == 1 ? "filled" : value == 2 ? "crossed empty" : "undecided";
                 meaning += value == 0 ? ", tap to fill, hold to cross"
                         : value == 1 ? ", tap to cross, hold to cross"
                         : ", tap or hold to clear";
@@ -955,6 +1059,7 @@ public final class PuzzleActivity extends Activity {
             actionSurface(cell, fill);
             if (pendingPictureCells.get(i) > 0) showPicturePending(i);
         }
+        updatePicturePreview();
         for (int value = 0; value < futoKeys.size(); value++) {
             View key = futoKeys.get(value);
             boolean armed = value != 0 && value == futoArmed;
@@ -1119,6 +1224,7 @@ public final class PuzzleActivity extends Activity {
             if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
                 // Intercept before ViewGroup can split the pointers across different buttons.
                 canceledMultiTouch = true;
+                cancelPictureStroke();
                 MotionEvent cancel = MotionEvent.obtain(event);
                 try {
                     cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -1211,6 +1317,7 @@ public final class PuzzleActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         focused = hasFocus; syncTime();
         if (!hasFocus) {
+            cancelPictureStroke();
             minesFeedback.stop();
             if (feedback != null) feedback.stop();
             if (loop != null) loop.cancelPress();
@@ -1226,6 +1333,7 @@ public final class PuzzleActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        cancelPictureStroke();
         minesFeedback.stop();
         if (feedback != null) feedback.stop();
         if (loop != null) loop.cancelPress();

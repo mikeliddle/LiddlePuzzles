@@ -94,11 +94,17 @@ final class BinaryPress {
             }
         }
         Press press = new Press();
-        button.setHapticFeedbackEnabled(false);
-        button.setOnLongClickListener(view -> {
+        secondaryAction(button, secondaryName, () -> {
             button.removeCallbacks(press.hold); press.held = true;
-            secondary.run(); return true;
+            secondary.run();
         });
+        button.addOnAttachStateChangeListener(press);
+        button.setOnTouchListener(press);
+    }
+
+    static void secondaryAction(Button button, String secondaryName, Runnable secondary) {
+        button.setHapticFeedbackEnabled(false);
+        button.setOnLongClickListener(view -> { secondary.run(); return true; });
         button.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo node) {
                 super.onInitializeAccessibilityNodeInfo(host, node);
@@ -106,7 +112,5 @@ final class BinaryPress {
                         AccessibilityNodeInfo.ACTION_LONG_CLICK, secondaryName));
             }
         });
-        button.addOnAttachStateChangeListener(press);
-        button.setOnTouchListener(press);
     }
 }

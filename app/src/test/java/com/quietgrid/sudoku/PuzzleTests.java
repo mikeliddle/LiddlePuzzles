@@ -25,7 +25,53 @@ public final class PuzzleTests {
     private static void check(boolean value, String message) { checks++; if (!value) throw new AssertionError(message); }
     public static void main(String[] args) throws Exception { batch(Path.of(args[0])); }
     static void run() throws Exception { batch(null); }
+    private static void nonogramStrokes() throws Exception {
+        NonogramStroke checkStroke = new NonogramStroke(5, .5, .5, .2, 250);
+        checkStroke.sample(4.5, .5, 249);
+        checkStroke.sample(.5, .5, 500);
+        check(checkStroke.paint() == 1 && checkStroke.crossed.equals(java.util.BitSet.valueOf(new long[]{31})),
+                "A fast drag paints the entire row once and keeps its pre-hold brush");
+
+        NonogramStroke xStroke = new NonogramStroke(5, .5, .5, .2, 250);
+        xStroke.sample(4.5, 4.5, 250);
+        check(xStroke.paint() == 2 && xStroke.crossed.equals(java.util.BitSet.valueOf(new long[]{0x1041041})),
+                "Hold-drag crosses only the diagonal interiors, not corner neighbors");
+        xStroke.sample(4.5, -1, 500);
+        check(xStroke.crossed.cardinality() == 9, "A gutter endpoint still paints the board crossed before exiting");
+
+        NonogramStroke tap = new NonogramStroke(5, .5, .5, .2, 250);
+        tap.sample(.8, .5, 100);
+        tap.sample(.8, .5, 500);
+        check(tap.tap() && tap.paint() == 0, "Early same-cell drift suppresses hold without stealing tap");
+        NonogramStroke hold = new NonogramStroke(5, .5, .5, .2, 250);
+        hold.sample(.5, .5, 500);
+        check(hold.hold() && !hold.tap() && hold.paint() == 0, "A stationary hold remains a single secondary action");
+        NonogramStroke leftGrid = new NonogramStroke(5, .5, .5, .2, 250);
+        leftGrid.sample(-.5, .5, 100);
+        leftGrid.sample(.5, .5, 500);
+        check(!leftGrid.tap() && !leftGrid.hold() && leftGrid.paint() == 0, "Clue gutter drag-off is neither a tap nor paint");
+
+        Nonogram initial = Nonogram.generate(new Random(117), new Generation());
+        initial.values[1] = 2;
+        initial.values[2] = 1;
+        PuzzleProgress before = new PuzzleProgress(initial);
+        Nonogram candidate = initial.copy();
+        candidate.paint(checkStroke.crossed, checkStroke.paint());
+        check(Arrays.equals(Arrays.copyOf(candidate.values, 5), new int[]{1, 2, 1, 1, 1}), "Brush passes through both existing marks");
+        PuzzleProgress edited = PuzzleStore.decodeProgress(Mode.NONOGRAM, PuzzleStore.encode(before.edited(candidate)));
+        check(edited.undoCount() == 1 && Arrays.equals(((Nonogram) edited.undo().game).values, initial.values)
+                && Arrays.equals(((Nonogram) edited.undo().redo().game).values, candidate.values),
+                "Saved stroke is one atomic undo/redo step");
+        Nonogram next = candidate.copy();
+        next.paint(xStroke.crossed, 2);
+        PuzzleProgress undone = edited.edited(next).undo();
+        Nonogram noOp = ((Nonogram) undone.game).copy();
+        noOp.paint(checkStroke.crossed, 2);
+        check(undone.edited(noOp) == undone && undone.canRedo(), "Dragging across only marked cells preserves Redo");
+    }
+
     private static void batch(Path output) throws Exception {
+        nonogramStrokes();
         fixtures = output == null ? null : output.resolve("fixtures");
         recorded.clear();
         if (fixtures != null) Files.createDirectories(fixtures);
@@ -55,6 +101,7 @@ public final class PuzzleTests {
                 rows.add(mode + "," + seed + "," + id + "," + (mode == Mode.MINESWEEPER ? "NA" : "1")
                         + "," + elapsed / 1e6 + "," + Base64.getEncoder().encodeToString(saved));
             }
+
             check(shapes.size() >= 4, "Variety exceeds rotations/reflections/relabelings of a single template");
             System.out.printf("%s: 20 distinct games / %d non-symmetric shapes, generation %.1f ms mean / %.1f ms max%n",
                     mode, shapes.size(), total / 20e6, maximum / 1e6);

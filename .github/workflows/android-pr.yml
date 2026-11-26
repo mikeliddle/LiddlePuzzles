@@ -32,6 +32,9 @@ jobs:
             echo 'Move setup, build, and testing instructions to docs/DEVELOPMENT.md.' >&2
             exit 1
           fi
+      - name: Check release version selection
+        shell: pwsh
+        run: ./scripts/Test-ReleaseVersion.ps1
   instrumentation:
     name: Android API ${{ matrix.api }} smoke
     runs-on: ubuntu-24.04

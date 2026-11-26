@@ -53,6 +53,28 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Check release version selection
+        run: .\scripts\Test-ReleaseVersion.ps1
+      - name: Select the next patch and Android versionCode
+        id: version
+        if: inputs.mode == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $gradle = Get-Content app\build.gradle -Raw
+          $baseVersion = [regex]::Match($gradle, "(?m)^\s*versionName .* : '([0-9]+\.[0-9]+\.[0-9]+)'\r?$")
+          $baseCode = [regex]::Match($gradle, '(?m)^\s*versionCode .* : ([1-9][0-9]*)\r?$')
+          if (!$baseVersion.Success -or !$baseCode.Success) { throw 'Cannot read version baseline from app/build.gradle.' }
+          $tags = @(gh api 'repos/mikeliddle/LiddlePuzzles/tags?per_page=100' --paginate --jq '.[].name')
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read release tags.' }
+          $pages = gh api 'repos/mikeliddle/LiddlePuzzles/releases?per_page=100' --paginate --slurp | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read release history.' }
+          $releases = @($pages | ForEach-Object { $_ })
+          $next = .\scripts\Get-ReleaseVersion.ps1 -BaseVersion $baseVersion.Groups[1].Value -BaseCode $baseCode.Groups[1].Value -Tags $tags -Releases $releases
+          "version=$($next.Version)" >> $env:GITHUB_OUTPUT
+          "code=$($next.Code)" >> $env:GITHUB_OUTPUT
+          "Next release: v$($next.Version), Android versionCode $($next.Code)" >> $env:GITHUB_STEP_SUMMARY
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: microsoft
@@ -60,15 +82,24 @@ jobs:
       - name: Check wrapper and build without release credentials
         env:
           SUDOKU_SIGNING_DIR: ${{ runner.temp }}\no-release-key
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_CODE: ${{ steps.version.outputs.code }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ((Get-FileHash gradle\wrapper\gradle-wrapper.jar -Algorithm SHA256).Hash -cne '81A82AAEA5ABCC8FF68B3DFCB58B3C3C429378EFD98E7433460610FECD7AE45F') {
             throw 'Unreviewed Gradle wrapper.'
           }
-          .\gradlew.bat --no-daemon --console=plain --dependency-verification strict -PunsignedRelease=true engineTest :app:assembleRelease :app:lintRelease
+          $versionArgs = @()
+          if ($env:RELEASE_VERSION) {
+            $versionArgs = @("-PreleaseVersionName=$env:RELEASE_VERSION", "-PreleaseVersionCode=$env:RELEASE_CODE")
+          }
+          .\gradlew.bat --no-daemon --console=plain --dependency-verification strict -PunsignedRelease=true @versionArgs engineTest :app:assembleRelease :app:lintRelease
           if ($LASTEXITCODE -ne 0) { throw 'Build or tests failed.' }
       - name: Inspect unsigned release
         id: inspect
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_CODE: ${{ steps.version.outputs.code }}
         run: |
           $ErrorActionPreference = 'Stop'
           $apk = 'app\build\outputs\apk\release\app-release-unsigned.apk'
@@ -89,6 +120,9 @@ jobs:
           }
           $code = $package.Matches[0].Groups[1].Value
           $version = $package.Matches[0].Groups[2].Value
+          if ($env:RELEASE_VERSION -and ($version -cne $env:RELEASE_VERSION -or $code -cne $env:RELEASE_CODE)) {
+            throw 'APK version does not match the selected release version.'
+          }
           & "$env:JAVA_HOME\bin\java.exe" -jar "$tools\lib\apksigner.jar" verify $apk 2>$null
           if ($LASTEXITCODE -eq 0) { throw 'Build must be unsigned.' }
           $global:LASTEXITCODE = 0
@@ -250,16 +284,12 @@ jobs:
           $existing = Invoke-WebRequest "https://api.github.com/repos/mikeliddle/LiddlePuzzles/git/ref/tags/$tag" -Headers $headers -SkipHttpErrorCheck
           if ($existing.StatusCode -ne 404) { throw 'Release tag already exists or could not be checked; refusing to reuse it.' }
           $notes = @"
-          - Share starting puzzles in seven modes with HTTPS links. Older links still open, and you can paste links into Shared puzzles on Home.
-          - Open the privacy policy from Settings > About.
-          - Daily Word removes 25 terms from accepted guesses without changing daily answers or existing saves.
-
           Reviewed source: $env:GITHUB_SHA
           Android versionCode: $env:VERSION_CODE
           Application ID: fyi.mllab.puzzle. Compatible updates retain this app's existing local progress; legacy com.quietgrid.sudoku private data does not transfer automatically.
           Offline, nondebuggable APK signed with the existing public-release certificate. See SHA256SUMS.txt.
           "@
-          gh release create $tag "signed\liddle-puzzles-$env:VERSION.apk" signed\SHA256SUMS.txt --repo mikeliddle/LiddlePuzzles --target $env:GITHUB_SHA --title "Liddle Puzzles $env:VERSION" --notes $notes --fail-on-no-commits --draft
+          gh release create $tag "signed\liddle-puzzles-$env:VERSION.apk" signed\SHA256SUMS.txt --repo mikeliddle/LiddlePuzzles --target $env:GITHUB_SHA --title "Liddle Puzzles $env:VERSION" --notes $notes --generate-notes --draft
           if ($LASTEXITCODE -ne 0) { throw 'Draft release or asset upload failed; inspect GitHub before retrying.' }
           gh release edit $tag --repo mikeliddle/LiddlePuzzles --draft=false
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed; inspect GitHub before retrying.' }
